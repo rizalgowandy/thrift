@@ -18,51 +18,52 @@
  */
 package org.apache.thrift.transport.layered;
 
-
+import java.util.Objects;
 import org.apache.thrift.TConfiguration;
 import org.apache.thrift.transport.*;
 
-import java.util.Objects;
-
 /**
- * This transport is wire compatible with {@link TFramedTransport}, but makes
- * use of reusable, expanding read and write buffers in order to avoid
- * allocating new byte[]s all the time. Since the buffers only expand, you
- * should probably only use this transport if your messages are not too variably
- * large, unless the persistent memory cost is not an issue.
+ * This transport is wire compatible with {@link TFramedTransport}, but makes use of reusable,
+ * expanding read and write buffers in order to avoid allocating new byte[]s all the time. Since the
+ * buffers only expand, you should probably only use this transport if your messages are not too
+ * variably large, unless the persistent memory cost is not an issue.
  *
- * This implementation is NOT threadsafe.
+ * <p>This implementation is NOT threadsafe.
  */
 public class TFastFramedTransport extends TLayeredTransport {
 
   public static class Factory extends TTransportFactory {
     private final int initialCapacity;
-    private final int maxLength;
+
+    /** Null when no maximum was asked for, which leaves each transport's own alone. */
+    private final Integer maxLength;
 
     public Factory() {
-      this(DEFAULT_BUF_CAPACITY, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
+      this(DEFAULT_BUF_CAPACITY, null);
     }
 
     public Factory(int initialCapacity) {
-      this(initialCapacity, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
+      this(initialCapacity, null);
     }
 
     public Factory(int initialCapacity, int maxLength) {
+      this(initialCapacity, Integer.valueOf(maxLength));
+    }
+
+    private Factory(int initialCapacity, Integer maxLength) {
       this.initialCapacity = initialCapacity;
       this.maxLength = maxLength;
     }
 
     @Override
     public TTransport getTransport(TTransport trans) throws TTransportException {
-      return new TFastFramedTransport(trans,
-          initialCapacity,
-          maxLength);
+      return Objects.isNull(maxLength)
+          ? new TFastFramedTransport(trans, initialCapacity)
+          : new TFastFramedTransport(trans, initialCapacity, maxLength);
     }
   }
 
-  /**
-   * How big should the default read and write buffers be?
-   */
+  /** How big should the default read and write buffers be? */
   public static final int DEFAULT_BUF_CAPACITY = 1024;
 
   private final AutoExpandingBufferWriteTransport writeBuffer;
@@ -72,40 +73,47 @@ public class TFastFramedTransport extends TLayeredTransport {
   private final int maxLength;
 
   /**
-   * Create a new {@link TFastFramedTransport}. Use the defaults
-   * for initial buffer size and max frame length.
+   * Create a new {@link TFastFramedTransport}. Use the defaults for initial buffer size and max
+   * frame length.
+   *
    * @param underlying Transport that real reads and writes will go through to.
    */
   public TFastFramedTransport(TTransport underlying) throws TTransportException {
-    this(underlying, DEFAULT_BUF_CAPACITY, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
+    // No maximum was asked for, so keep the one the transport already carries.
+    // See TFramedTransport's single-argument constructor.
+    this(underlying, DEFAULT_BUF_CAPACITY, configuredMaxFrameSize(underlying));
   }
 
   /**
-   * Create a new {@link TFastFramedTransport}. Use the specified
-   * initial buffer capacity and the default max frame length.
-   * @param underlying Transport that real reads and writes will go through to.
-   * @param initialBufferCapacity The initial size of the read and write buffers.
-   * In practice, it's not critical to set this unless you know in advance that
-   * your messages are going to be very large.
-   */
-  public TFastFramedTransport(TTransport underlying, int initialBufferCapacity) throws TTransportException {
-    this(underlying, initialBufferCapacity, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
-  }
-
-  /**
+   * Create a new {@link TFastFramedTransport}. Use the specified initial buffer capacity and the
+   * default max frame length.
    *
    * @param underlying Transport that real reads and writes will go through to.
-   * @param initialBufferCapacity The initial size of the read and write buffers.
-   * In practice, it's not critical to set this unless you know in advance that
-   * your messages are going to be very large. (You can pass
-   * TFramedTransportWithReusableBuffer.DEFAULT_BUF_CAPACITY if you're only
-   * using this constructor because you want to set the maxLength.)
-   * @param maxLength The max frame size you are willing to read. You can use
-   * this parameter to limit how much memory can be allocated.
+   * @param initialBufferCapacity The initial size of the read and write buffers. In practice, it's
+   *     not critical to set this unless you know in advance that your messages are going to be very
+   *     large.
    */
-  public TFastFramedTransport(TTransport underlying, int initialBufferCapacity, int maxLength) throws TTransportException {
+  public TFastFramedTransport(TTransport underlying, int initialBufferCapacity)
+      throws TTransportException {
+    this(underlying, initialBufferCapacity, configuredMaxFrameSize(underlying));
+  }
+
+  /**
+   * @param underlying Transport that real reads and writes will go through to.
+   * @param initialBufferCapacity The initial size of the read and write buffers. In practice, it's
+   *     not critical to set this unless you know in advance that your messages are going to be very
+   *     large. (You can pass TFramedTransportWithReusableBuffer.DEFAULT_BUF_CAPACITY if you're only
+   *     using this constructor because you want to set the maxLength.)
+   * @param maxLength The max frame size you are willing to read. You can use this parameter to
+   *     limit how much memory can be allocated.
+   */
+  public TFastFramedTransport(TTransport underlying, int initialBufferCapacity, int maxLength)
+      throws TTransportException {
     super(underlying);
-    TConfiguration config = Objects.isNull(underlying.getConfiguration()) ? new TConfiguration() : underlying.getConfiguration();
+    TConfiguration config =
+        Objects.isNull(underlying.getConfiguration())
+            ? new TConfiguration()
+            : underlying.getConfiguration();
     this.maxLength = maxLength;
     config.setMaxFrameSize(maxLength);
     this.initialBufferCapacity = initialBufferCapacity;
@@ -142,21 +150,30 @@ public class TFastFramedTransport extends TLayeredTransport {
   }
 
   private void readFrame() throws TTransportException {
-    getInnerTransport().readAll(i32buf , 0, 4);
+    // See TFramedTransport.readFrame(): the framing reads need a full budget of their own.
+    resetMessageSizeAndConsumedBytes();
+
+    getInnerTransport().readAll(i32buf, 0, 4);
     int size = TFramedTransport.decodeFrameSize(i32buf);
 
     if (size < 0) {
       close();
-      throw new TTransportException(TTransportException.CORRUPTED_DATA, "Read a negative frame size (" + size + ")!");
+      throw new TTransportException(
+          TTransportException.CORRUPTED_DATA, "Read a negative frame size (" + size + ")!");
     }
 
     if (size > getInnerTransport().getConfiguration().getMaxFrameSize()) {
       close();
-      throw new TTransportException(TTransportException.CORRUPTED_DATA,
+      throw new TTransportException(
+          TTransportException.CORRUPTED_DATA,
           "Frame size (" + size + ") larger than max length (" + maxLength + ")!");
     }
 
     readBuffer.fill(getInnerTransport(), size);
+
+    // Bind the read budget to this frame; see TFramedTransport.readFrame() for why this discards
+    // consumption rather than accumulating it.
+    resetMessageSizeAndConsumedBytes(size);
   }
 
   @Override
@@ -169,9 +186,7 @@ public class TFastFramedTransport extends TLayeredTransport {
     readBuffer.consumeBuffer(len);
   }
 
-  /**
-   * Only clears the read buffer!
-   */
+  /** Only clears the read buffer! */
   public void clear() throws TTransportException {
     readBuffer = new AutoExpandingBufferReadTransport(getConfiguration(), initialBufferCapacity);
   }

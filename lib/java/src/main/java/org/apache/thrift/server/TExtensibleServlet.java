@@ -19,20 +19,18 @@
 
 package org.apache.thrift.server;
 
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
-
-import javax.servlet.ServletConfig;
-import javax.servlet.ServletContext;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import org.apache.thrift.TException;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TProtocol;
@@ -41,12 +39,11 @@ import org.apache.thrift.transport.TIOStreamTransport;
 import org.apache.thrift.transport.TTransport;
 
 /**
- * Servlet implementation class ThriftServer, that allows {@link TProcessor} and
- * {@link TProtocolFactory} to be supplied after the {@link #init()} method has
- * finished. <br>
- * Subclasses must implement the abstract methods that return the TProcessor and
- * two TProtocolFactory. Those methods are guaranteed to be called exactly once,
- * and that {@link ServletContext} is available.
+ * Servlet implementation class ThriftServer, that allows {@link TProcessor} and {@link
+ * TProtocolFactory} to be supplied after the {@link #init()} method has finished. <br>
+ * Subclasses must implement the abstract methods that return the TProcessor and two
+ * TProtocolFactory. Those methods are guaranteed to be called exactly once, and that {@link
+ * ServletContext} is available.
  */
 public abstract class TExtensibleServlet extends HttpServlet {
   private static final long serialVersionUID = 1L;
@@ -55,40 +52,38 @@ public abstract class TExtensibleServlet extends HttpServlet {
 
   private TProtocolFactory inFactory;
 
-  private TProtocolFactory outFactory;
-
   private Collection<Map.Entry<String, String>> customHeaders;
 
   /**
-   * Returns the appropriate {@link TProcessor}. This will be called <b>once</b> just
-   * after the {@link #init()} method
-   * 
+   * Returns the appropriate {@link TProcessor}. This will be called <b>once</b> just after the
+   * {@link #init()} method
+   *
    * @return the appropriate {@link TProcessor}
    */
   protected abstract TProcessor getProcessor();
 
   /**
-   * Returns the appropriate in {@link TProtocolFactory}. This will be called
-   * <b>once</b> just after the {@link #init()} method
-   * 
+   * Returns the appropriate in {@link TProtocolFactory}. This will be called <b>once</b> just after
+   * the {@link #init()} method
+   *
    * @return the appropriate in {@link TProtocolFactory}
    */
   protected abstract TProtocolFactory getInProtocolFactory();
 
   /**
-   * Returns the appropriate out {@link TProtocolFactory}. This will be called
-   * <b>once</b> just after the {@link #init()} method
-   * 
+   * Returns the appropriate out {@link TProtocolFactory}. This will be called <b>once</b> just
+   * after the {@link #init()} method
+   *
    * @return the appropriate out {@link TProtocolFactory}
    */
   protected abstract TProtocolFactory getOutProtocolFactory();
 
   @Override
   public final void init(ServletConfig config) throws ServletException {
-    super.init(config); //no-args init() happens here
+    super.init(config); // no-args init() happens here
     this.processor = getProcessor();
     this.inFactory = getInProtocolFactory();
-    this.outFactory = getOutProtocolFactory();
+    TProtocolFactory outFactory = getOutProtocolFactory();
     this.customHeaders = new ArrayList<Map.Entry<String, String>>();
 
     if (processor == null) {
@@ -103,22 +98,21 @@ public abstract class TExtensibleServlet extends HttpServlet {
   }
 
   /**
-   * @see HttpServlet#doPost(HttpServletRequest request, HttpServletResponse
-   *      response)
+   * @see HttpServlet#doPost(HttpServletRequest request, HttpServletResponse response)
    */
   @Override
   protected void doPost(HttpServletRequest request, HttpServletResponse response)
       throws ServletException, IOException {
-    TTransport inTransport = null;
-    TTransport outTransport = null;
+    TTransport inTransport;
+    TTransport outTransport;
 
     try {
       response.setContentType("application/x-thrift");
 
       if (null != this.customHeaders) {
-	for (Map.Entry<String, String> header : this.customHeaders) {
-	  response.addHeader(header.getKey(), header.getValue());
-	}
+        for (Map.Entry<String, String> header : this.customHeaders) {
+          response.addHeader(header.getKey(), header.getValue());
+        }
       }
 
       InputStream in = request.getInputStream();
@@ -139,8 +133,7 @@ public abstract class TExtensibleServlet extends HttpServlet {
   }
 
   /**
-   * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse
-   *      response)
+   * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
    */
   @Override
   protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -149,19 +142,23 @@ public abstract class TExtensibleServlet extends HttpServlet {
   }
 
   public void addCustomHeader(final String key, final String value) {
-    this.customHeaders.add(new Map.Entry<String, String>() {
-      public String getKey() {
-	return key;
-      }
+    this.customHeaders.add(
+        new Map.Entry<String, String>() {
+          @Override
+          public String getKey() {
+            return key;
+          }
 
-      public String getValue() {
-	return value;
-      }
+          @Override
+          public String getValue() {
+            return value;
+          }
 
-      public String setValue(String value) {
-	return null;
-      }
-    });
+          @Override
+          public String setValue(String value) {
+            return null;
+          }
+        });
   }
 
   public void setCustomHeaders(Collection<Map.Entry<String, String>> headers) {

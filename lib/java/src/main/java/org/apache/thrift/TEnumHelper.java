@@ -19,37 +19,28 @@
 
 package org.apache.thrift;
 
-import java.lang.NoSuchMethodException;
-import java.lang.IllegalAccessException;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-/**
- * Utility class with static methods for interacting with TEnum
- */
+/** Utility class with static methods for interacting with TEnum */
 public class TEnumHelper {
 
+  /* no instantiation */
+  private TEnumHelper() {}
+
   /**
-   * Given a TEnum class and integer value, this method will return
-   * the associated constant from the given TEnum class.
-   * This method MUST be modified should the name of the 'findByValue' method
+   * Given a TEnum class and integer value, this method will return the associated constant from the
+   * given TEnum class. This method MUST be modified should the name of the 'findByValue' method
    * change.
    *
    * @param enumClass TEnum from which to return a matching constant.
    * @param value Value for which to return the constant.
-   *
-   * @return The constant in 'enumClass' whose value is 'value' or null if
-   *         something went wrong.
+   * @return The constant in 'enumClass' whose value is 'value' or null if something went wrong.
    */
   public static TEnum getByValue(Class<? extends TEnum> enumClass, int value) {
     try {
       Method method = enumClass.getMethod("findByValue", int.class);
       return (TEnum) method.invoke(null, value);
-    } catch (NoSuchMethodException nsme) {
-      return null;
-    } catch (IllegalAccessException iae) {
-      return null;
-    } catch (InvocationTargetException ite) {
+    } catch (ReflectiveOperationException nsme) {
       return null;
     }
   }

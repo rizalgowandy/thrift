@@ -18,25 +18,30 @@
  */
 
 plugins {
-    kotlin("jvm") version "1.5.31"
-    id("com.ncorti.ktfmt.gradle") version "0.4.0"
+    kotlin("jvm")
     java
     application
+    id("com.ncorti.ktfmt.gradle")
 }
 
-repositories {
-    mavenCentral()
-}
+repositories { mavenCentral() }
+
+val slf4jVersion: String by project
+val httpcoreVersion: String by project
+val logbackVersion: String by project
+val kotlinxCoroutinesJdk8Version: String by project
+val cliktVersion: String by project
 
 dependencies {
     implementation(platform("org.jetbrains.kotlin:kotlin-bom"))
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-    // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-jdk8
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.6.1")
-    // https://mvnrepository.com/artifact/org.apache.thrift/libthrift
+    // clikt is used to drive command line parsing and validation
+    implementation("com.github.ajalt.clikt:clikt:$cliktVersion")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:$kotlinxCoroutinesJdk8Version")
     implementation("org.apache.thrift:libthrift:INCLUDED")
-    // https://mvnrepository.com/artifact/ch.qos.logback/logback-classic
-    implementation("ch.qos.logback:logback-classic:1.3.0-alpha14")
+    implementation("org.slf4j:slf4j-api:$slf4jVersion")
+    implementation("org.apache.httpcomponents:httpcore:$httpcoreVersion")
+    implementation("ch.qos.logback:logback-classic:$logbackVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
 }
@@ -47,36 +52,32 @@ tasks {
         mainClass.set("org.apache.thrift.test.TestServerKt")
     }
 
-    ktfmt {
-        kotlinLangStyle()
+    if (JavaVersion.current().isJava11Compatible) {
+        ktfmt { kotlinLangStyle() }
     }
 
     task<Exec>("compileThrift") {
-        val thriftBin = if (hasProperty("thrift.compiler")) {
-            file(property("thrift.compiler"))
-        } else {
-            project.rootDir.resolve("../../compiler/cpp/thrift")
-        }
+        val thriftBin =
+            if (hasProperty("thrift.compiler")) {
+                file(property("thrift.compiler")!!)
+            } else {
+                project.rootDir.resolve("../../compiler/cpp/thrift")
+            }
         val outputDir = layout.buildDirectory.dir("generated-sources")
-        doFirst {
-            mkdir(outputDir)
-        }
-        commandLine = listOf(
-            thriftBin.absolutePath,
-            "-gen",
-            "kotlin",
-            "-out",
-            outputDir.get().toString(),
-            project.rootDir.resolve("../../test/ThriftTest.thrift").absolutePath
-        )
+        doFirst { mkdir(outputDir) }
+        commandLine =
+            listOf(
+                thriftBin.absolutePath,
+                "-gen",
+                "kotlin",
+                "-out",
+                outputDir.get().toString(),
+                project.rootDir.resolve("../../test/ThriftTest.thrift").absolutePath,
+            )
         group = LifecycleBasePlugin.BUILD_GROUP
     }
 
-    compileKotlin {
-        dependsOn("compileThrift")
-    }
+    compileKotlin { dependsOn("compileThrift") }
 }
 
-sourceSets["main"].java {
-    srcDir(layout.buildDirectory.dir("generated-sources"))
-}
+sourceSets["main"].java { srcDir(layout.buildDirectory.dir("generated-sources")) }

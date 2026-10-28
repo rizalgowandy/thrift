@@ -17,7 +17,6 @@
  * under the License.
  */
 
-
 package org.apache.thrift.transport;
 
 import java.io.IOException;
@@ -29,74 +28,75 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-
 import org.apache.thrift.TConfiguration;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Wrapper around ServerSocketChannel
- */
+/** Wrapper around ServerSocketChannel */
 public class TNonblockingServerSocket extends TNonblockingServerTransport {
-  private static final Logger LOGGER = LoggerFactory.getLogger(TNonblockingServerSocket.class.getName());
+  private static final Logger LOGGER =
+      LoggerFactory.getLogger(TNonblockingServerSocket.class.getName());
 
-  /**
-   * This channel is where all the nonblocking magic happens.
-   */
+  /** This channel is where all the nonblocking magic happens. */
   private ServerSocketChannel serverSocketChannel = null;
 
-  /**
-   * Underlying ServerSocket object
-   */
+  /** Underlying ServerSocket object */
   private ServerSocket serverSocket_ = null;
 
-  /**
-   * Timeout for client sockets from accept
-   */
+  /** Timeout for client sockets from accept */
   private int clientTimeout_ = 0;
 
-  /**
-   * Limit for client sockets request size
-   */
+  /** Limit for client sockets request size */
   private int maxFrameSize_ = 0;
 
-  public static class NonblockingAbstractServerSocketArgs extends
-      AbstractServerTransportArgs<NonblockingAbstractServerSocketArgs> {}
+  /** Max message size */
+  private int maxMessageSize_ = 0;
 
-  /**
-   * Creates just a port listening server socket
-   */
+  public static class NonblockingAbstractServerSocketArgs
+      extends AbstractServerTransportArgs<NonblockingAbstractServerSocketArgs> {}
+
+  /** Creates just a port listening server socket */
   public TNonblockingServerSocket(int port) throws TTransportException {
     this(port, 0);
   }
 
-  /**
-   * Creates just a port listening server socket
-   */
+  /** Creates just a port listening server socket */
   public TNonblockingServerSocket(int port, int clientTimeout) throws TTransportException {
     this(port, clientTimeout, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
   }
 
-  public TNonblockingServerSocket(int port, int clientTimeout, int maxFrameSize) throws TTransportException {
-    this(new NonblockingAbstractServerSocketArgs().port(port).clientTimeout(clientTimeout).maxFrameSize(maxFrameSize));
+  public TNonblockingServerSocket(int port, int clientTimeout, int maxFrameSize)
+      throws TTransportException {
+    this(
+        new NonblockingAbstractServerSocketArgs()
+            .port(port)
+            .clientTimeout(clientTimeout)
+            .maxFrameSize(maxFrameSize));
   }
 
   public TNonblockingServerSocket(InetSocketAddress bindAddr) throws TTransportException {
     this(bindAddr, 0);
   }
 
-  public TNonblockingServerSocket(InetSocketAddress bindAddr, int clientTimeout) throws TTransportException {
+  public TNonblockingServerSocket(InetSocketAddress bindAddr, int clientTimeout)
+      throws TTransportException {
     this(bindAddr, clientTimeout, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
   }
 
-  public TNonblockingServerSocket(InetSocketAddress bindAddr, int clientTimeout, int maxFrameSize) throws TTransportException {
-    this(new NonblockingAbstractServerSocketArgs().bindAddr(bindAddr).clientTimeout(clientTimeout).maxFrameSize(maxFrameSize));
+  public TNonblockingServerSocket(InetSocketAddress bindAddr, int clientTimeout, int maxFrameSize)
+      throws TTransportException {
+    this(
+        new NonblockingAbstractServerSocketArgs()
+            .bindAddr(bindAddr)
+            .clientTimeout(clientTimeout)
+            .maxFrameSize(maxFrameSize));
   }
 
-  public TNonblockingServerSocket(NonblockingAbstractServerSocketArgs args) throws TTransportException {
+  public TNonblockingServerSocket(NonblockingAbstractServerSocketArgs args)
+      throws TTransportException {
     clientTimeout_ = args.clientTimeout;
     maxFrameSize_ = args.maxFrameSize;
+    maxMessageSize_ = args.maxMessageSize;
     try {
       serverSocketChannel = ServerSocketChannel.open();
       serverSocketChannel.configureBlocking(false);
@@ -109,7 +109,8 @@ public class TNonblockingServerSocket extends TNonblockingServerTransport {
       serverSocket_.bind(args.bindAddr, args.backlog);
     } catch (IOException ioe) {
       serverSocket_ = null;
-      throw new TTransportException("Could not create ServerSocket on address " + args.bindAddr.toString() + ".", ioe);
+      throw new TTransportException(
+          "Could not create ServerSocket on address " + args.bindAddr.toString() + ".", ioe);
     }
   }
 
@@ -138,6 +139,7 @@ public class TNonblockingServerSocket extends TNonblockingServerTransport {
       TNonblockingSocket tsocket = new TNonblockingSocket(socketChannel);
       tsocket.setTimeout(clientTimeout_);
       tsocket.setMaxFrameSize(maxFrameSize_);
+      tsocket.setMaxMessageSize(maxMessageSize_);
       return tsocket;
     } catch (IOException iox) {
       throw new TTransportException(iox);
@@ -173,8 +175,7 @@ public class TNonblockingServerSocket extends TNonblockingServerTransport {
   }
 
   public int getPort() {
-    if (serverSocket_ == null)
-      return -1;
+    if (serverSocket_ == null) return -1;
     return serverSocket_.getLocalPort();
   }
 
@@ -182,5 +183,4 @@ public class TNonblockingServerSocket extends TNonblockingServerTransport {
   ServerSocketChannel getServerSocketChannel() {
     return serverSocketChannel;
   }
-
 }

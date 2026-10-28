@@ -37,6 +37,10 @@ version (Windows) {
   import core.sys.posix.sys.socket : connect;
 } else static assert(0, "Don't know connect on this platform.");
 
+version (OSX) {
+  import core.stdc.errno : ECONNRESET;
+}
+
 version (Win32) {
   import core.stdc.config : __c_long;
 }
@@ -280,7 +284,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
       TTransportException.Type.UNKNOWN);
   }
 
-  /// The amount of time in which a conncetion must be established before the
+  /// The amount of time in which a connection must be established before the
   /// open() call times out.
   Duration connectTimeout = dur!"seconds"(5);
 

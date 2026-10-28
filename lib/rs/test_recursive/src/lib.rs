@@ -17,9 +17,9 @@
 
 #![allow(dead_code)]
 
+pub mod maintenance;
 pub mod transit;
 pub mod vehicles;
-pub mod maintenance;
 
 mod server {
     use crate::maintenance::maintenance_facility::{
@@ -138,10 +138,10 @@ mod tests {
     //
 
     use crate::server::AllInOneHandler;
-    use crate::transit::buses::{Bus, Powertrain, Route as BusRoute, DEFAULT4WHEELCAPACITY};
+    use crate::transit::buses::{Bus, DEFAULT4WHEELCAPACITY, Powertrain, Route as BusRoute};
     use crate::transit::light::light_rail::Lrt;
     use crate::transit::light::streetcars::{
-        BarnSyncHandler, Flexity, RollingStock, Route, RouteNumber, Streetcar, CLRV,
+        BarnSyncHandler, CLRV, Flexity, RollingStock, Route, RouteNumber, Streetcar,
     };
     use crate::transit::services::city_services::TransitImprovements;
     use crate::transit::trains::Locomotive;

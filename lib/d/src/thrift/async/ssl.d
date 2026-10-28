@@ -239,7 +239,7 @@ private:
 
     auto addr = socket_.getPeerAddress();
     authorize(ssl_, accessManager_, addr,
-      (serverSide_ ? addr.toHostNameString() : socket_.host));
+      (serverSide_ ? addr.toHostNameString() : socket_.host), serverSide_);
   }
 
   TAsyncSocket socket_;
@@ -260,7 +260,7 @@ private:
  *
  * Example:
  * ---
- * auto context = nwe TSSLContext();
+ * auto context = new TSSLContext();
  * ... // Configure SSL context.
  * auto factory = new TAsyncSSLSocketFactory(context);
  *

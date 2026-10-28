@@ -21,10 +21,7 @@ package org.apache.thrift.transport;
 
 import org.apache.thrift.TException;
 
-/**
- * Transport exceptions.
- *
- */
+/** Transport exceptions. */
 public class TTransportException extends TException {
 
   private static final long serialVersionUID = 1L;
@@ -35,6 +32,7 @@ public class TTransportException extends TException {
   public static final int TIMED_OUT = 3;
   public static final int END_OF_FILE = 4;
   public static final int CORRUPTED_DATA = 5;
+  public static final int MESSAGE_SIZE_LIMIT = 6;
 
   protected int type_ = UNKNOWN;
 
@@ -77,5 +75,4 @@ public class TTransportException extends TException {
   public int getType() {
     return type_;
   }
-
 }

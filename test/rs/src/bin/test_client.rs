@@ -16,29 +16,36 @@
 // under the License.
 
 use clap::{clap_app, value_t};
-use env_logger;
 use log::*;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
+use rustls::sign::{CertifiedKey, SingleCertAndKey};
+use rustls::{ClientConfig, DigitallySignedStruct, Error as RustlsError, SignatureScheme};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
+use std::io::Cursor;
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::Arc;
 
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 #[cfg(unix)]
 use std::path::Path;
 
-use thrift;
+use thrift::OrderedFloat;
 use thrift::protocol::{
     TBinaryInputProtocol, TBinaryOutputProtocol, TCompactInputProtocol, TCompactOutputProtocol,
     TInputProtocol, TMultiplexedOutputProtocol, TOutputProtocol,
 };
 use thrift::transport::{
     TBufferedReadTransport, TBufferedWriteTransport, TFramedReadTransport, TFramedWriteTransport,
-    TIoChannel, TReadTransport, TTcpChannel, TWriteTransport,
+    TIoChannel, TReadTransport, TTcpChannel, TTlsClientChannel, TWriteTransport,
 };
-use thrift::OrderedFloat;
 use thrift_test::*;
+
+const CLIENT_CERT: &[u8] = include_bytes!("../../../keys/client_v3.crt");
+const CLIENT_KEY: &[u8] = include_bytes!("../../../keys/client_v3.key");
 
 type ThriftClientPair = (
     ThriftTestSyncClient<Box<dyn TInputProtocol>, Box<dyn TOutputProtocol>>,
@@ -63,7 +70,6 @@ fn run() -> thrift::Result<()> {
     // unsupported options:
     // --pipe
     // --anon-pipes
-    // --ssl
     // --threads
     let matches = clap_app!(rust_test_client =>
         (version: "1.0")
@@ -72,6 +78,7 @@ fn run() -> thrift::Result<()> {
         (@arg host: --host +takes_value "Host on which the Thrift test server is located")
         (@arg port: --port +takes_value "Port on which the Thrift test server is listening")
         (@arg domain_socket: --("domain-socket") +takes_value "Unix Domain Socket on which the Thrift test server is listening")
+        (@arg ssl: --ssl "Use TLS")
         (@arg protocol: --protocol +takes_value "Thrift protocol implementation to use (\"binary\", \"compact\", \"multi\", \"multic\")")
         (@arg transport: --transport +takes_value "Thrift transport implementation to use (\"buffered\", \"framed\")")
         (@arg testloops: -n --testloops +takes_value "Number of times to run tests")
@@ -81,6 +88,7 @@ fn run() -> thrift::Result<()> {
     let host = matches.value_of("host").unwrap_or("127.0.0.1");
     let port = value_t!(matches, "port", u16).unwrap_or(9090);
     let domain_socket = matches.value_of("domain_socket");
+    let ssl = matches.is_present("ssl");
     let protocol = matches.value_of("protocol").unwrap_or("binary");
     let transport = matches.value_of("transport").unwrap_or("buffered");
     let testloops = value_t!(matches, "testloops", u8).unwrap_or(1);
@@ -89,10 +97,20 @@ fn run() -> thrift::Result<()> {
         None => {
             let listen_address = format!("{}:{}", host, port);
             info!(
-                "Client binds to {} with {}+{} stack",
-                listen_address, protocol, transport
+                "Client connects to {} with {}+{}{} stack",
+                listen_address,
+                protocol,
+                transport,
+                if ssl { "+tls" } else { "" }
             );
-            bind(listen_address.as_str(), protocol, transport)?
+            let tls = if ssl {
+                let server_name = ServerName::try_from(host.to_owned())
+                    .map_err(|e| format!("invalid TLS server name {host:?}: {e}"))?;
+                Some((server_name, tls_config()))
+            } else {
+                None
+            };
+            bind(listen_address.as_str(), tls, protocol, transport)?
         }
         Some(domain_socket) => {
             info!(
@@ -112,9 +130,28 @@ fn run() -> thrift::Result<()> {
 
 fn bind<A: ToSocketAddrs>(
     listen_address: A,
+    tls: Option<(ServerName<'static>, Arc<ClientConfig>)>,
     protocol: &str,
     transport: &str,
 ) -> Result<ThriftClientPair, thrift::Error> {
+    if let Some((server_name, tls_config)) = tls {
+        let shared_channel = TTlsClientChannel::connect(listen_address, server_name, tls_config)?;
+
+        let second_service_client = if protocol.starts_with("multi") {
+            let (i_prot, o_prot) =
+                build(shared_channel.clone(), transport, protocol, "SecondService")?;
+            Some(SecondServiceSyncClient::new(i_prot, o_prot))
+        } else {
+            None
+        };
+
+        let (i_prot, o_prot) = build(shared_channel, transport, protocol, "ThriftTest")?;
+        return Ok((
+            ThriftTestSyncClient::new(i_prot, o_prot),
+            second_service_client,
+        ));
+    }
+
     // create a TCPStream that will be shared by all Thrift clients
     // service calls from multiple Thrift clients will be interleaved over the same connection
     // this isn't a problem for us because we're single-threaded and all calls block to completion
@@ -136,6 +173,93 @@ fn bind<A: ToSocketAddrs>(
     };
 
     Ok((thrift_test_client, second_service_client))
+}
+
+fn tls_config() -> Arc<ClientConfig> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let verifier = Arc::new(CrossTestServerVerifier(Arc::clone(&provider)));
+
+    // The shared cross-test client certificate is X.509 v1. rustls can send
+    // it, but its convenience builder cannot pre-parse it to confirm that the
+    // public key matches. Build the same single-certificate resolver directly;
+    // a mismatch would still fail the TLS CertificateVerify signature.
+    let signing_key = provider
+        .key_provider
+        .load_private_key(private_key(CLIENT_KEY))
+        .unwrap();
+    let certified_key = CertifiedKey::new(certificates(CLIENT_CERT), signing_key);
+
+    let config = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
+        .with_client_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key)));
+
+    Arc::new(config)
+}
+
+/// Disables peer authentication for the cross-test client, matching the test
+/// configuration used by other language bindings. TLS handshake signatures
+/// are still verified. This is never used by the Thrift runtime library.
+#[derive(Debug)]
+struct CrossTestServerVerifier(Arc<rustls::crypto::CryptoProvider>);
+
+impl ServerCertVerifier for CrossTestServerVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, RustlsError> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            certificate,
+            signature,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            certificate,
+            signature,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+fn certificates(pem: &[u8]) -> Vec<CertificateDer<'static>> {
+    rustls_pemfile::certs(&mut Cursor::new(pem))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
+fn private_key(pem: &[u8]) -> PrivateKeyDer<'static> {
+    rustls_pemfile::private_key(&mut Cursor::new(pem))
+        .unwrap()
+        .unwrap()
 }
 
 #[cfg(unix)]
@@ -233,6 +357,12 @@ fn make_thrift_calls(
         "thing".to_owned(),
     )?;
 
+    info!("testUuid");
+    verify_expected_result(
+        thrift_test_client.test_uuid(uuid::uuid!("00112233-4455-6677-8899-aabbccddeeff")),
+        uuid::uuid!("00112233-4455-6677-8899-aabbccddeeff"),
+    )?;
+
     info!("testBool");
     verify_expected_result(thrift_test_client.test_bool(true), true)?;
 
@@ -248,10 +378,7 @@ fn make_thrift_calls(
     info!("testi64");
     // try!(verify_expected_result(thrift_test_client.test_i64(-8651829879438294565),
     // -8651829879438294565));
-    verify_expected_result(
-        thrift_test_client.test_i64(i64::min_value()),
-        i64::min_value(),
-    )?;
+    verify_expected_result(thrift_test_client.test_i64(i64::MIN), i64::MIN)?;
 
     info!("testDouble");
     verify_expected_result(
@@ -346,60 +473,44 @@ fn make_thrift_calls(
 
     info!("testList");
     {
-        let mut v_snd: Vec<i32> = Vec::new();
-        v_snd.push(29384);
-        v_snd.push(238);
-        v_snd.push(32498);
+        let v_snd: Vec<i32> = vec![29384, 238, 32498];
 
-        let mut v_cmp: Vec<i32> = Vec::new();
-        v_cmp.push(29384);
-        v_cmp.push(238);
-        v_cmp.push(32498);
+        let v_cmp: Vec<i32> = vec![29384, 238, 32498];
 
         verify_expected_result(thrift_test_client.test_list(v_snd), v_cmp)?;
     }
 
     info!("testSet");
     {
-        let mut s_snd: BTreeSet<i32> = BTreeSet::new();
-        s_snd.insert(293_481);
-        s_snd.insert(23);
-        s_snd.insert(3234);
+        let s_snd: BTreeSet<i32> = BTreeSet::from([293_481, 23, 3234]);
 
-        let mut s_cmp: BTreeSet<i32> = BTreeSet::new();
-        s_cmp.insert(293_481);
-        s_cmp.insert(23);
-        s_cmp.insert(3234);
+        let s_cmp: BTreeSet<i32> = BTreeSet::from([293_481, 23, 3234]);
 
         verify_expected_result(thrift_test_client.test_set(s_snd), s_cmp)?;
     }
 
     info!("testMap");
     {
-        let mut m_snd: BTreeMap<i32, i32> = BTreeMap::new();
-        m_snd.insert(2, 4);
-        m_snd.insert(4, 6);
-        m_snd.insert(8, 7);
+        let m_snd: BTreeMap<i32, i32> = BTreeMap::from([(2, 4), (4, 6), (8, 7)]);
 
-        let mut m_cmp: BTreeMap<i32, i32> = BTreeMap::new();
-        m_cmp.insert(2, 4);
-        m_cmp.insert(4, 6);
-        m_cmp.insert(8, 7);
+        let m_cmp: BTreeMap<i32, i32> = BTreeMap::from([(2, 4), (4, 6), (8, 7)]);
 
         verify_expected_result(thrift_test_client.test_map(m_snd), m_cmp)?;
     }
 
     info!("testStringMap");
     {
-        let mut m_snd: BTreeMap<String, String> = BTreeMap::new();
-        m_snd.insert("2".to_owned(), "4_string".to_owned());
-        m_snd.insert("4".to_owned(), "6_string".to_owned());
-        m_snd.insert("8".to_owned(), "7_string".to_owned());
+        let m_snd: BTreeMap<String, String> = BTreeMap::from([
+            ("2".to_owned(), "4_string".to_owned()),
+            ("4".to_owned(), "6_string".to_owned()),
+            ("8".to_owned(), "7_string".to_owned()),
+        ]);
 
-        let mut m_rcv: BTreeMap<String, String> = BTreeMap::new();
-        m_rcv.insert("2".to_owned(), "4_string".to_owned());
-        m_rcv.insert("4".to_owned(), "6_string".to_owned());
-        m_rcv.insert("8".to_owned(), "7_string".to_owned());
+        let m_rcv: BTreeMap<String, String> = BTreeMap::from([
+            ("2".to_owned(), "4_string".to_owned()),
+            ("4".to_owned(), "6_string".to_owned()),
+            ("8".to_owned(), "7_string".to_owned()),
+        ]);
 
         verify_expected_result(thrift_test_client.test_string_map(m_snd), m_rcv)?;
     }
@@ -409,27 +520,19 @@ fn make_thrift_calls(
     // => 2, 3 => 3, 4 => 4, }, }
     info!("testMapMap");
     {
-        let mut m_cmp_nested_0: BTreeMap<i32, i32> = BTreeMap::new();
-        for i in (-4 as i32)..0 {
-            m_cmp_nested_0.insert(i, i);
-        }
-        let mut m_cmp_nested_1: BTreeMap<i32, i32> = BTreeMap::new();
-        for i in 1..5 {
-            m_cmp_nested_1.insert(i, i);
-        }
+        let m_cmp_nested_0: BTreeMap<i32, i32> = (-4..0).map(|i| (i, i)).collect();
+        let m_cmp_nested_1: BTreeMap<i32, i32> = (1..5).map(|i| (i, i)).collect();
 
-        let mut m_cmp: BTreeMap<i32, BTreeMap<i32, i32>> = BTreeMap::new();
-        m_cmp.insert(-4, m_cmp_nested_0);
-        m_cmp.insert(4, m_cmp_nested_1);
+        let m_cmp: BTreeMap<i32, BTreeMap<i32, i32>> =
+            BTreeMap::from([(-4, m_cmp_nested_0), (4, m_cmp_nested_1)]);
 
         verify_expected_result(thrift_test_client.test_map_map(42), m_cmp)?;
     }
 
     info!("testMulti");
     {
-        let mut m_snd: BTreeMap<i16, String> = BTreeMap::new();
-        m_snd.insert(1298, "fizz".to_owned());
-        m_snd.insert(-148, "buzz".to_owned());
+        let m_snd: BTreeMap<i16, String> =
+            BTreeMap::from([(1298, "fizz".to_owned()), (-148, "buzz".to_owned())]);
 
         let s_cmp = Xtruct {
             string_thing: Some("Hello2".to_owned()),
@@ -452,48 +555,48 @@ fn make_thrift_calls(
     //   2 => { 6 => <empty Insanity struct>, },
     // }
     {
-        let mut arg_map_usermap: BTreeMap<Numberz, i64> = BTreeMap::new();
-        arg_map_usermap.insert(Numberz::ONE, 4289);
-        arg_map_usermap.insert(Numberz::EIGHT, 19);
+        let arg_map_usermap: BTreeMap<Numberz, i64> =
+            BTreeMap::from([(Numberz::ONE, 4289), (Numberz::EIGHT, 19)]);
 
-        let mut arg_vec_xtructs: Vec<Xtruct> = Vec::new();
-        arg_vec_xtructs.push(Xtruct {
-            string_thing: Some("foo".to_owned()),
-            byte_thing: Some(8),
-            i32_thing: Some(29),
-            i64_thing: Some(92384),
-        });
-        arg_vec_xtructs.push(Xtruct {
-            string_thing: Some("bar".to_owned()),
-            byte_thing: Some(28),
-            i32_thing: Some(2),
-            i64_thing: Some(-1281),
-        });
-        arg_vec_xtructs.push(Xtruct {
-            string_thing: Some("baz".to_owned()),
-            byte_thing: Some(0),
-            i32_thing: Some(3_948_539),
-            i64_thing: Some(-12_938_492),
-        });
+        let arg_vec_xtructs: Vec<Xtruct> = vec![
+            Xtruct {
+                string_thing: Some("foo".to_owned()),
+                byte_thing: Some(8),
+                i32_thing: Some(29),
+                i64_thing: Some(92384),
+            },
+            Xtruct {
+                string_thing: Some("bar".to_owned()),
+                byte_thing: Some(28),
+                i32_thing: Some(2),
+                i64_thing: Some(-1281),
+            },
+            Xtruct {
+                string_thing: Some("baz".to_owned()),
+                byte_thing: Some(0),
+                i32_thing: Some(3_948_539),
+                i64_thing: Some(-12_938_492),
+            },
+        ];
 
-        let mut s_cmp_nested_1: BTreeMap<Numberz, Insanity> = BTreeMap::new();
         let insanity = Insanity {
             user_map: Some(arg_map_usermap),
             xtructs: Some(arg_vec_xtructs),
         };
-        s_cmp_nested_1.insert(Numberz::TWO, insanity.clone());
-        s_cmp_nested_1.insert(Numberz::THREE, insanity.clone());
+        let s_cmp_nested_1: BTreeMap<Numberz, Insanity> = BTreeMap::from([
+            (Numberz::TWO, insanity.clone()),
+            (Numberz::THREE, insanity.clone()),
+        ]);
 
-        let mut s_cmp_nested_2: BTreeMap<Numberz, Insanity> = BTreeMap::new();
         let empty_insanity = Insanity {
             user_map: Some(BTreeMap::new()),
             xtructs: Some(Vec::new()),
         };
-        s_cmp_nested_2.insert(Numberz::SIX, empty_insanity);
+        let s_cmp_nested_2: BTreeMap<Numberz, Insanity> =
+            BTreeMap::from([(Numberz::SIX, empty_insanity)]);
 
-        let mut s_cmp: BTreeMap<UserId, BTreeMap<Numberz, Insanity>> = BTreeMap::new();
-        s_cmp.insert(1 as UserId, s_cmp_nested_1);
-        s_cmp.insert(2 as UserId, s_cmp_nested_2);
+        let s_cmp: BTreeMap<UserId, BTreeMap<Numberz, Insanity>> =
+            BTreeMap::from([(1, s_cmp_nested_1), (2, s_cmp_nested_2)]);
 
         verify_expected_result(thrift_test_client.test_insanity(insanity), s_cmp)?;
     }
@@ -639,7 +742,7 @@ fn verify_expected_result<T: Debug + PartialEq + Sized>(
             } else {
                 info!("*** FAILED ***");
                 Err(thrift::Error::User(
-                    format!("expected {:?} but got {:?}", &expected, &v).into(),
+                    format!("expected {:?} but got {:?}", expected, v).into(),
                 ))
             }
         }

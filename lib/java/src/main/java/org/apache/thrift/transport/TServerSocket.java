@@ -19,34 +19,30 @@
 
 package org.apache.thrift.transport;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Wrapper around ServerSocket for Thrift.
- *
- */
+/** Wrapper around ServerSocket for Thrift. */
 public class TServerSocket extends TServerTransport {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TServerSocket.class.getName());
 
-  /**
-   * Underlying ServerSocket object
-   */
+  /** Underlying ServerSocket object */
   private ServerSocket serverSocket_ = null;
 
-  /**
-   * Timeout for client sockets from accept
-   */
+  /** Timeout for client sockets from accept */
   private int clientTimeout_ = 0;
 
-  public static class ServerSocketTransportArgs extends AbstractServerTransportArgs<ServerSocketTransportArgs> {
+  /** Max message size */
+  private int maxMessageSize_ = 0;
+
+  public static class ServerSocketTransportArgs
+      extends AbstractServerTransportArgs<ServerSocketTransportArgs> {
     ServerSocket serverSocket;
 
     public ServerSocketTransportArgs serverSocket(ServerSocket serverSocket) {
@@ -55,30 +51,22 @@ public class TServerSocket extends TServerTransport {
     }
   }
 
-  /**
-   * Creates a server socket from underlying socket object
-   */
+  /** Creates a server socket from underlying socket object */
   public TServerSocket(ServerSocket serverSocket) throws TTransportException {
     this(serverSocket, 0);
   }
 
-  /**
-   * Creates a server socket from underlying socket object
-   */
+  /** Creates a server socket from underlying socket object */
   public TServerSocket(ServerSocket serverSocket, int clientTimeout) throws TTransportException {
     this(new ServerSocketTransportArgs().serverSocket(serverSocket).clientTimeout(clientTimeout));
   }
 
-  /**
-   * Creates just a port listening server socket
-   */
+  /** Creates just a port listening server socket */
   public TServerSocket(int port) throws TTransportException {
     this(port, 0);
   }
 
-  /**
-   * Creates just a port listening server socket
-   */
+  /** Creates just a port listening server socket */
   public TServerSocket(int port, int clientTimeout) throws TTransportException {
     this(new InetSocketAddress(port), clientTimeout);
   }
@@ -93,6 +81,7 @@ public class TServerSocket extends TServerTransport {
 
   public TServerSocket(ServerSocketTransportArgs args) throws TTransportException {
     clientTimeout_ = args.clientTimeout;
+    maxMessageSize_ = args.maxMessageSize;
     if (args.serverSocket != null) {
       this.serverSocket_ = args.serverSocket;
       return;
@@ -106,7 +95,8 @@ public class TServerSocket extends TServerTransport {
       serverSocket_.bind(args.bindAddr, args.backlog);
     } catch (IOException ioe) {
       close();
-      throw new TTransportException("Could not create ServerSocket on address " + args.bindAddr.toString() + ".", ioe);
+      throw new TTransportException(
+          "Could not create ServerSocket on address " + args.bindAddr.toString() + ".", ioe);
     }
   }
 
@@ -137,6 +127,7 @@ public class TServerSocket extends TServerTransport {
     }
     TSocket socket = new TSocket(result);
     socket.setTimeout(clientTimeout_);
+    socket.setMaxMessageSize(maxMessageSize_);
     return socket;
   }
 

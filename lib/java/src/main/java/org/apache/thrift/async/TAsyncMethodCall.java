@@ -23,22 +23,22 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.protocol.TProtocolFactory;
-import org.apache.thrift.transport.layered.TFramedTransport;
 import org.apache.thrift.transport.TMemoryBuffer;
 import org.apache.thrift.transport.TNonblockingTransport;
 import org.apache.thrift.transport.TTransportException;
+import org.apache.thrift.transport.layered.TFramedTransport;
 
 /**
  * Encapsulates an async method call.
- * <p>
- * Need to generate:
+ *
+ * <p>Need to generate:
+ *
  * <ul>
- *   <li>protected abstract void write_args(TProtocol protocol)</li>
- *   <li>protected abstract T getResult() throws &lt;Exception_1&gt;, &lt;Exception_2&gt;, ...</li>
+ *   <li>protected abstract void write_args(TProtocol protocol)
+ *   <li>protected abstract T getResult() throws &lt;Exception_1&gt;, &lt;Exception_2&gt;, ...
  * </ul>
  *
  * @param <T> The return type of the encapsulated method call.
@@ -46,9 +46,9 @@ import org.apache.thrift.transport.TTransportException;
 public abstract class TAsyncMethodCall<T> {
 
   private static final int INITIAL_MEMORY_BUFFER_SIZE = 128;
-  private static AtomicLong sequenceIdCounter = new AtomicLong(0);
+  private static final AtomicLong sequenceIdCounter = new AtomicLong(0);
 
-  public static enum State {
+  public enum State {
     CONNECTING,
     WRITING_REQUEST_SIZE,
     WRITING_REQUEST_BODY,
@@ -58,9 +58,7 @@ public abstract class TAsyncMethodCall<T> {
     ERROR;
   }
 
-  /**
-   * Next step in the call, initialized by start()
-   */
+  /** Next step in the call, initialized by start() */
   private State state = null;
 
   protected final TNonblockingTransport transport;
@@ -68,16 +66,21 @@ public abstract class TAsyncMethodCall<T> {
   protected final TAsyncClient client;
   private final AsyncMethodCallback<T> callback;
   private final boolean isOneway;
-  private long sequenceId;
+  private final long sequenceId;
   private final long timeout;
 
   private ByteBuffer sizeBuffer;
   private final byte[] sizeBufferArray = new byte[4];
   private ByteBuffer frameBuffer;
 
-  private long startTime = System.currentTimeMillis();
+  private final long startTime = System.currentTimeMillis();
 
-  protected TAsyncMethodCall(TAsyncClient client, TProtocolFactory protocolFactory, TNonblockingTransport transport, AsyncMethodCallback<T> callback, boolean isOneway) {
+  protected TAsyncMethodCall(
+      TAsyncClient client,
+      TProtocolFactory protocolFactory,
+      TNonblockingTransport transport,
+      AsyncMethodCallback<T> callback,
+      boolean isOneway) {
     this.transport = transport;
     this.callback = callback;
     this.protocolFactory = protocolFactory;
@@ -121,6 +124,7 @@ public abstract class TAsyncMethodCall<T> {
 
   /**
    * Initialize buffers.
+   *
    * @throws TException if buffer initialization fails
    */
   protected void prepareMethodCall() throws TException {
@@ -137,6 +141,7 @@ public abstract class TAsyncMethodCall<T> {
 
   /**
    * Register with selector and start first state, which could be either connecting or writing.
+   *
    * @throws IOException if register or starting fails
    */
   void start(Selector sel) throws IOException {
@@ -168,10 +173,11 @@ public abstract class TAsyncMethodCall<T> {
   }
 
   /**
-   * Transition to next state, doing whatever work is required. Since this
-   * method is only called by the selector thread, we can make changes to our
-   * select interests without worrying about concurrency.
-   * @param key
+   * Transition to next state, doing whatever work is required. Since this method is only called by
+   * the selector thread, we can make changes to our select interests without worrying about
+   * concurrency.
+   *
+   * @param key selection key
    */
   void transition(SelectionKey key) {
     // Ensure key is valid
@@ -201,8 +207,10 @@ public abstract class TAsyncMethodCall<T> {
           doReadingResponseBody(key);
           break;
         default: // RESPONSE_READ, ERROR, or bug
-          throw new IllegalStateException("Method call in state " + state
-              + " but selector called transition method. Seems like a bug...");
+          throw new IllegalStateException(
+              "Method call in state "
+                  + state
+                  + " but selector called transition method. Seems like a bug...");
       }
     } catch (Exception e) {
       key.cancel();
@@ -246,8 +254,25 @@ public abstract class TAsyncMethodCall<T> {
       throw new TTransportException(TTransportException.END_OF_FILE, "Read call frame size failed");
     }
     if (sizeBuffer.remaining() == 0) {
+      // The peer chose this number, and it sizes the buffer below before any of
+      // the response has arrived. Refuse what TFramedTransport.readFrame refuses,
+      // so that the two ways of reading a framed response agree.
+      int size = TFramedTransport.decodeFrameSize(sizeBufferArray);
+      if (size < 0) {
+        throw new TTransportException(
+            TTransportException.CORRUPTED_DATA, "Read a negative frame size (" + size + ")!");
+      }
+      if (size > transport.getMaxFrameSize()) {
+        throw new TTransportException(
+            TTransportException.CORRUPTED_DATA,
+            "Frame size ("
+                + size
+                + ") larger than max length ("
+                + transport.getMaxFrameSize()
+                + ")!");
+      }
       state = State.READING_RESPONSE_BODY;
-      frameBuffer = ByteBuffer.allocate(TFramedTransport.decodeFrameSize(sizeBufferArray));
+      frameBuffer = ByteBuffer.allocate(size);
     }
   }
 
@@ -260,7 +285,7 @@ public abstract class TAsyncMethodCall<T> {
         cleanUpAndFireCallback(key);
       } else {
         state = State.READING_RESPONSE_SIZE;
-        sizeBuffer.rewind();  // Prepare to read incoming frame size
+        sizeBuffer.rewind(); // Prepare to read incoming frame size
         key.interestOps(SelectionKey.OP_READ);
       }
     }
@@ -268,7 +293,8 @@ public abstract class TAsyncMethodCall<T> {
 
   private void doWritingRequestSize() throws TTransportException {
     if (transport.write(sizeBuffer) < 0) {
-      throw new TTransportException(TTransportException.END_OF_FILE, "Write call frame size failed");
+      throw new TTransportException(
+          TTransportException.END_OF_FILE, "Write call frame size failed");
     }
     if (sizeBuffer.remaining() == 0) {
       state = State.WRITING_REQUEST_BODY;
@@ -277,7 +303,8 @@ public abstract class TAsyncMethodCall<T> {
 
   private void doConnecting(SelectionKey key) throws IOException {
     if (!key.isConnectable() || !transport.finishConnect()) {
-      throw new IOException("not connectable or finishConnect returned false after we got an OP_CONNECT");
+      throw new IOException(
+          "not connectable or finishConnect returned false after we got an OP_CONNECT");
     }
     registerForFirstWrite(key);
   }

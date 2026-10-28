@@ -43,8 +43,6 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
-static const string endl = "\n"; // avoid ostream << std::endl flushes
-
 /**
  * Smalltalk code generator.
  *
@@ -73,6 +71,7 @@ public:
 
   void init_generator() override;
   void close_generator() override;
+  std::string display_name() const override;
 
   /**
    * Program-level generation functions
@@ -95,6 +94,7 @@ public:
 
   void generate_st_struct(std::ostream& out, t_struct* tstruct, bool is_exception);
   void generate_accessors(std::ostream& out, t_struct* tstruct);
+  void generate_serialization(std::ostream& out, t_struct* tstruct);
 
   /**
    * Service-level generation functions
@@ -176,17 +176,10 @@ void t_st_generator::init_generator() {
   f_.open(f_name.c_str());
 
   // Print header
-  f_ << st_autogen_comment() << endl;
+  f_ << st_autogen_comment() << '\n';
 
   st_class_def(f_, program_name_);
   generate_class_side_definition();
-
-  // Generate enums
-  vector<t_enum*> enums = program_->get_enums();
-  vector<t_enum*>::iterator en_iter;
-  for (en_iter = enums.begin(); en_iter != enums.end(); ++en_iter) {
-    generate_enum(*en_iter);
-  }
 }
 
 string t_st_generator::class_name() {
@@ -218,10 +211,10 @@ string t_st_generator::st_autogen_comment() {
 
 void t_st_generator::generate_force_consts() {
   f_ << prefix(class_name()) << " enums keysAndValuesDo: [:k :v | " << prefix(class_name())
-     << " enums at: k put: v value].!" << endl;
+     << " enums at: k put: v value].!" << '\n';
 
   f_ << prefix(class_name()) << " constants keysAndValuesDo: [:k :v | " << prefix(class_name())
-     << " constants at: k put: v value].!" << endl;
+     << " constants at: k put: v value].!" << '\n';
 }
 
 void t_st_generator::close_generator() {
@@ -251,11 +244,11 @@ void t_st_generator::generate_typedef(t_typedef* ttypedef) {
 }
 
 void t_st_generator::st_class_def(std::ostream& out, string name) {
-  out << "Object subclass: #" << prefix(name) << endl;
+  out << "Object subclass: #" << prefix(name) << '\n';
   indent_up();
-  out << indent() << "instanceVariableNames: ''" << endl << indent() << "classVariableNames: ''"
-      << endl << indent() << "poolDictionaries: ''" << endl << indent() << "category: '"
-      << generated_category() << "'!" << endl << endl;
+  out << indent() << "instanceVariableNames: ''" << '\n' << indent() << "classVariableNames: ''"
+      << '\n' << indent() << "poolDictionaries: ''" << '\n' << indent() << "category: '"
+      << generated_category() << "'!" << '\n' << '\n';
 }
 
 void t_st_generator::st_method(std::ostream& out, string cls, string name) {
@@ -280,14 +273,14 @@ void t_st_generator::st_method(std::ostream& out, string cls, string name, strin
   strftime(timestr, 50, "%m/%d/%Y %H:%M", tinfo);
 
   out << "!" << prefix(cls) << " methodsFor: '" + category + "' stamp: 'thrift " << timestr
-      << "'!\n" << name << endl;
+      << "'!\n" << name << '\n';
 
   indent_up();
   out << indent();
 }
 
 void t_st_generator::st_close_method(std::ostream& out) {
-  out << "! !" << endl << endl;
+  out << "! !" << '\n' << '\n';
   indent_down();
 }
 
@@ -315,16 +308,16 @@ void t_st_generator::st_accessors(std::ostream& out,
 }
 
 void t_st_generator::generate_class_side_definition() {
-  f_ << prefix(class_name()) << " class" << endl << "\tinstanceVariableNames: 'constants enums'!"
-     << endl << endl;
+  f_ << prefix(class_name()) << " class" << '\n' << "\tinstanceVariableNames: 'constants enums'!"
+     << '\n' << '\n';
 
   st_accessors(f_, class_name() + " class", "enums");
   st_accessors(f_, class_name() + " class", "constants");
 
-  f_ << prefix(class_name()) << " enums: Dictionary new!" << endl;
-  f_ << prefix(class_name()) << " constants: Dictionary new!" << endl;
+  f_ << prefix(class_name()) << " enums: Dictionary new!" << '\n';
+  f_ << prefix(class_name()) << " constants: Dictionary new!" << '\n';
 
-  f_ << endl;
+  f_ << '\n';
 }
 
 /**
@@ -337,16 +330,16 @@ void t_st_generator::generate_enum(t_enum* tenum) {
   string cls_name = program_name_ + capitalize(tenum->get_name());
 
   f_ << prefix(class_name()) << " enums at: '" << tenum->get_name() << "' put: ["
-     << "(Dictionary new " << endl;
+     << "(Dictionary new " << '\n';
 
   vector<t_enum_value*> constants = tenum->get_constants();
   vector<t_enum_value*>::iterator c_iter;
   for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
     int value = (*c_iter)->get_value();
-    f_ << "\tat: '" << (*c_iter)->get_name() << "' put: " << value << ";" << endl;
+    f_ << "\tat: '" << (*c_iter)->get_name() << "' put: " << value << ";" << '\n';
   }
 
-  f_ << "\tyourself)]!" << endl << endl;
+  f_ << "\tyourself)]!" << '\n' << '\n';
 }
 
 /**
@@ -358,7 +351,7 @@ void t_st_generator::generate_const(t_const* tconst) {
   t_const_value* value = tconst->get_value();
 
   f_ << prefix(class_name()) << " constants at: '" << name << "' put: ["
-     << render_const_value(type, value) << "]!" << endl << endl;
+     << render_const_value(type, value) << "]!" << '\n' << '\n';
 }
 
 /**
@@ -397,7 +390,7 @@ string t_st_generator::render_const_value(t_type* type, t_const_value* value) {
   } else if (type->is_enum()) {
     indent(out) << value->get_integer();
   } else if (type->is_struct() || type->is_xception()) {
-    out << "(" << capitalize(type->get_name()) << " new " << endl;
+    out << "(" << capitalize(type->get_name()) << " new " << '\n';
     indent_up();
 
     const vector<t_field*>& fields = ((t_struct*)type)->get_members();
@@ -417,7 +410,7 @@ string t_st_generator::render_const_value(t_type* type, t_const_value* value) {
       }
 
       out << indent() << v_iter->first->get_string() << ": "
-          << render_const_value(field_type, v_iter->second) << ";" << endl;
+          << render_const_value(field_type, v_iter->second) << ";" << '\n';
     }
     out << indent() << "yourself)";
 
@@ -425,7 +418,7 @@ string t_st_generator::render_const_value(t_type* type, t_const_value* value) {
   } else if (type->is_map()) {
     t_type* ktype = ((t_map*)type)->get_key_type();
     t_type* vtype = ((t_map*)type)->get_val_type();
-    out << "(Dictionary new" << endl;
+    out << "(Dictionary new" << '\n';
     indent_up();
     indent_up();
     const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val = value->get_map();
@@ -435,7 +428,7 @@ string t_st_generator::render_const_value(t_type* type, t_const_value* value) {
       out << "at: " << render_const_value(ktype, v_iter->first);
       out << " put: ";
       out << render_const_value(vtype, v_iter->second);
-      out << ";" << endl;
+      out << ";" << '\n';
     }
     out << indent() << indent() << "yourself)";
     indent_down();
@@ -448,9 +441,9 @@ string t_st_generator::render_const_value(t_type* type, t_const_value* value) {
       etype = ((t_set*)type)->get_elem_type();
     }
     if (type->is_set()) {
-      out << "(Set new" << endl;
+      out << "(Set new" << '\n';
     } else {
-      out << "(OrderedCollection new" << endl;
+      out << "(OrderedCollection new" << '\n';
     }
     indent_up();
     indent_up();
@@ -459,7 +452,7 @@ string t_st_generator::render_const_value(t_type* type, t_const_value* value) {
     for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
       out << indent() << indent();
       out << "add: " << render_const_value(etype, *v_iter);
-      out << ";" << endl;
+      out << ";" << '\n';
     }
     out << indent() << indent() << "yourself)";
     indent_down();
@@ -501,7 +494,7 @@ void t_st_generator::generate_st_struct(std::ostream& out,
   else
     out << "Object";
 
-  out << " subclass: #" << prefix(type_name(tstruct)) << endl << "\tinstanceVariableNames: '";
+  out << " subclass: #" << prefix(type_name(tstruct)) << '\n' << "\tinstanceVariableNames: '";
 
   if (members.size() > 0) {
     for (m_iter = members.begin(); m_iter != members.end(); ++m_iter) {
@@ -517,6 +510,35 @@ void t_st_generator::generate_st_struct(std::ostream& out,
       << "\tcategory: '" << generated_category() << "'!\n\n";
 
   generate_accessors(out, tstruct);
+  generate_serialization(out, tstruct);
+}
+
+/**
+ * Gives a struct class the two methods that serialize it.
+ *
+ * Nested structs used to be expanded textually wherever they appeared, which
+ * meant a type that (directly or indirectly) contained itself expanded for
+ * ever: the generator recursed until its own stack ran out (THRIFT-6062).
+ * Emitting the code once per struct and calling it removes the recursion from
+ * the generator, and lets recursive types be generated at all.
+ *
+ * It also makes the depth guard mean something. Inlined, the
+ * incrementRecursionDepth pairs counted lexical nesting, which is fixed at
+ * generation time; here each struct counts one level per actual call, so the
+ * limit applies to how deep the *data* is.
+ */
+void t_st_generator::generate_serialization(std::ostream& out, t_struct* tstruct) {
+  string cls = capitalize(type_name(tstruct));
+
+  st_method(out, cls, "writeTo: oprot");
+  out << struct_writer(tstruct, "self");
+  st_close_method(out);
+
+  st_class_method(out, cls, "readFrom: iprot");
+  out << "^ " << struct_reader(tstruct, tstruct->get_name());
+  st_close_method(out);
+
+  out << '\n';
 }
 
 bool t_st_generator::is_vowel(char c) {
@@ -555,7 +577,7 @@ void t_st_generator::generate_accessors(std::ostream& out, t_struct* tstruct) {
                    camelcase((*m_iter)->get_name()),
                    a_type((*m_iter)->get_type()));
     }
-    out << endl;
+    out << '\n';
   }
 }
 
@@ -582,17 +604,17 @@ string t_st_generator::map_writer(t_map* tmap, string fname) {
 
   out << "[oprot writeMapBegin: (TMap new keyType: " << type_to_enum(tmap->get_key_type())
       << "; valueType: " << type_to_enum(tmap->get_val_type()) << "; size: " << fname << " size)."
-      << endl;
+      << '\n';
   indent_up();
 
-  out << indent() << fname << " keysAndValuesDo: [:" << key << " :" << val << " |" << endl;
+  out << indent() << fname << " keysAndValuesDo: [:" << key << " :" << val << " |" << '\n';
   indent_up();
 
-  out << indent() << write_val(tmap->get_key_type(), key) << "." << endl << indent()
+  out << indent() << write_val(tmap->get_key_type(), key) << "." << '\n' << indent()
       << write_val(tmap->get_val_type(), val);
   indent_down();
 
-  out << "]." << endl << indent() << "oprot writeMapEnd] value";
+  out << "]." << '\n' << indent() << "oprot writeMapEnd] value";
   indent_down();
 
   return out.str();
@@ -603,18 +625,18 @@ string t_st_generator::map_reader(t_map* tmap) {
   string desc = temp_name();
   string val = temp_name();
 
-  out << "[|" << desc << " " << val << "| " << endl;
+  out << "[|" << desc << " " << val << "| " << '\n';
   indent_up();
 
-  out << indent() << desc << " := iprot readMapBegin." << endl << indent() << val
-      << " := Dictionary new." << endl << indent() << desc << " size timesRepeat: [" << endl;
+  out << indent() << desc << " := iprot readMapBegin." << '\n' << indent() << val
+      << " := Dictionary new." << '\n' << indent() << desc << " size timesRepeat: [" << '\n';
 
   indent_up();
   out << indent() << val << " at: " << read_val(tmap->get_key_type())
       << " put: " << read_val(tmap->get_val_type());
   indent_down();
 
-  out << "]." << endl << indent() << "iprot readMapEnd." << endl << indent() << val << "] value";
+  out << "]." << '\n' << indent() << "iprot readMapEnd." << '\n' << indent() << val << "] value";
   indent_down();
 
   return out.str();
@@ -625,16 +647,16 @@ string t_st_generator::list_writer(t_list* tlist, string fname) {
   string val = temp_name();
 
   out << "[oprot writeListBegin: (TList new elemType: " << type_to_enum(tlist->get_elem_type())
-      << "; size: " << fname << " size)." << endl;
+      << "; size: " << fname << " size)." << '\n';
   indent_up();
 
-  out << indent() << fname << " do: [:" << val << "|" << endl;
+  out << indent() << fname << " do: [:" << val << "|" << '\n';
   indent_up();
 
-  out << indent() << write_val(tlist->get_elem_type(), val) << endl;
+  out << indent() << write_val(tlist->get_elem_type(), val) << '\n';
   indent_down();
 
-  out << "]." << endl << indent() << "oprot writeListEnd] value";
+  out << "]." << '\n' << indent() << "oprot writeListEnd] value";
   indent_down();
 
   return out.str();
@@ -645,17 +667,17 @@ string t_st_generator::list_reader(t_list* tlist) {
   string desc = temp_name();
   string val = temp_name();
 
-  out << "[|" << desc << " " << val << "| " << desc << " := iprot readListBegin." << endl;
+  out << "[|" << desc << " " << val << "| " << desc << " := iprot readListBegin." << '\n';
   indent_up();
 
-  out << indent() << val << " := OrderedCollection new." << endl << indent() << desc
-      << " size timesRepeat: [" << endl;
+  out << indent() << val << " := OrderedCollection new." << '\n' << indent() << desc
+      << " size timesRepeat: [" << '\n';
 
   indent_up();
   out << indent() << val << " add: " << read_val(tlist->get_elem_type());
   indent_down();
 
-  out << "]." << endl << indent() << "iprot readListEnd." << endl << indent() << val << "] value";
+  out << "]." << '\n' << indent() << "iprot readListEnd." << '\n' << indent() << val << "] value";
   indent_down();
 
   return out.str();
@@ -666,16 +688,16 @@ string t_st_generator::set_writer(t_set* tset, string fname) {
   string val = temp_name();
 
   out << "[oprot writeSetBegin: (TSet new elemType: " << type_to_enum(tset->get_elem_type())
-      << "; size: " << fname << " size)." << endl;
+      << "; size: " << fname << " size)." << '\n';
   indent_up();
 
-  out << indent() << fname << " do: [:" << val << "|" << endl;
+  out << indent() << fname << " do: [:" << val << "|" << '\n';
   indent_up();
 
-  out << indent() << write_val(tset->get_elem_type(), val) << endl;
+  out << indent() << write_val(tset->get_elem_type(), val) << '\n';
   indent_down();
 
-  out << "]." << endl << indent() << "oprot writeSetEnd] value";
+  out << "]." << '\n' << indent() << "oprot writeSetEnd] value";
   indent_down();
 
   return out.str();
@@ -686,17 +708,17 @@ string t_st_generator::set_reader(t_set* tset) {
   string desc = temp_name();
   string val = temp_name();
 
-  out << "[|" << desc << " " << val << "| " << desc << " := iprot readSetBegin." << endl;
+  out << "[|" << desc << " " << val << "| " << desc << " := iprot readSetBegin." << '\n';
   indent_up();
 
-  out << indent() << val << " := Set new." << endl << indent() << desc << " size timesRepeat: ["
-      << endl;
+  out << indent() << val << " := Set new." << '\n' << indent() << desc << " size timesRepeat: ["
+      << '\n';
 
   indent_up();
   out << indent() << val << " add: " << read_val(tset->get_elem_type());
   indent_down();
 
-  out << "]." << endl << indent() << "iprot readSetEnd." << endl << indent() << val << "] value";
+  out << "]." << '\n' << indent() << "iprot readSetEnd." << '\n' << indent() << val << "] value";
   indent_down();
 
   return out.str();
@@ -707,9 +729,10 @@ string t_st_generator::struct_writer(t_struct* tstruct, string sname) {
   const vector<t_field*>& fields = tstruct->get_sorted_members();
   vector<t_field*>::const_iterator fld_iter;
 
-  out << "[oprot writeStructBegin: "
-      << "(TStruct new name: '" + tstruct->get_name() + "')." << endl;
+  out << "[oprot incrementRecursionDepth." << '\n';
   indent_up();
+  out << indent() << "[oprot writeStructBegin: "
+      << "(TStruct new name: '" + tstruct->get_name() + "')." << '\n';
 
   for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
     bool optional = (*fld_iter)->get_req() == t_field::T_OPTIONAL;
@@ -717,15 +740,15 @@ string t_st_generator::struct_writer(t_struct* tstruct, string sname) {
     string accessor = sname + " " + camelcase(fname);
 
     if (optional) {
-      out << indent() << accessor << " ifNotNil: [" << endl;
+      out << indent() << accessor << " ifNotNil: [" << '\n';
       indent_up();
     }
 
     out << indent() << "oprot writeFieldBegin: (TField new name: '" << fname
         << "'; type: " << type_to_enum((*fld_iter)->get_type())
-        << "; id: " << (*fld_iter)->get_key() << ")." << endl;
+        << "; id: " << (*fld_iter)->get_key() << ")." << '\n';
 
-    out << indent() << write_val((*fld_iter)->get_type(), accessor) << "." << endl << indent()
+    out << indent() << write_val((*fld_iter)->get_type(), accessor) << "." << '\n' << indent()
         << "oprot writeFieldEnd";
 
     if (optional) {
@@ -733,10 +756,11 @@ string t_st_generator::struct_writer(t_struct* tstruct, string sname) {
       indent_down();
     }
 
-    out << "." << endl;
+    out << "." << '\n';
   }
 
-  out << indent() << "oprot writeFieldStop; writeStructEnd] value";
+  out << indent()
+      << "oprot writeFieldStop; writeStructEnd] ensure: [oprot decrementRecursionDepth]] value";
   indent_down();
 
   return out.str();
@@ -754,33 +778,35 @@ string t_st_generator::struct_reader(t_struct* tstruct, string clsName = "") {
     clsName = tstruct->get_name();
   }
 
-  out << "[|" << desc << " " << val << "|" << endl;
+  out << "[|" << desc << " " << val << "|" << '\n';
   indent_up();
 
   // This is nasty, but without it we'll break things by prefixing TResult.
   string name = ((capitalize(clsName) == "TResult") ? capitalize(clsName) : prefix(clsName));
-  out << indent() << val << " := " << name << " new." << endl;
+  out << indent() << val << " := " << name << " new." << '\n';
+  out << indent() << "iprot incrementRecursionDepth." << '\n';
 
-  out << indent() << "iprot readStructBegin." << endl << indent() << "[" << desc
-      << " := iprot readFieldBegin." << endl << indent() << desc
-      << " type = TType stop] whileFalse: [|" << found << "|" << endl;
+  out << indent() << "[iprot readStructBegin." << '\n'
+      << indent() << "[" << desc << " := iprot readFieldBegin." << '\n'
+      << indent() << desc << " type = TType stop] whileFalse: [|" << found << "|" << '\n';
   indent_up();
 
   for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
-    out << indent() << desc << " id = " << (*fld_iter)->get_key() << " ifTrue: [" << endl;
+    out << indent() << desc << " id = " << (*fld_iter)->get_key() << " ifTrue: [" << '\n';
     indent_up();
 
-    out << indent() << found << " := true." << endl << indent() << val << " "
+    out << indent() << found << " := true." << '\n' << indent() << val << " "
         << camelcase((*fld_iter)->get_name()) << ": " << read_val((*fld_iter)->get_type());
     indent_down();
 
-    out << "]." << endl;
+    out << "]." << '\n';
   }
 
-  out << indent() << found << " ifNil: [iprot skip: " << desc << " type]]." << endl;
+  out << indent() << found << " ifNil: [iprot skip: " << desc << " type]]." << '\n';
   indent_down();
 
-  out << indent() << "oprot readStructEnd." << endl << indent() << val << "] value";
+  out << indent() << "iprot readStructEnd] ensure: [iprot decrementRecursionDepth]." << '\n'
+      << indent() << val << "] value";
   indent_down();
 
   return out.str();
@@ -793,26 +819,26 @@ string t_st_generator::write_val(t_type* t, string fname) {
     t_base_type::t_base tbase = ((t_base_type*)t)->get_base();
     switch (tbase) {
     case t_base_type::TYPE_DOUBLE:
-      return "iprot writeDouble: " + fname + " asFloat";
+      return "oprot writeDouble: " + fname + " asFloat";
       break;
     case t_base_type::TYPE_I8:
     case t_base_type::TYPE_I16:
     case t_base_type::TYPE_I32:
     case t_base_type::TYPE_I64:
-      return "iprot write" + capitalize(type_name(t)) + ": " + fname + " asInteger";
+      return "oprot write" + capitalize(type_name(t)) + ": " + fname + " asInteger";
     default:
-      return "iprot write" + capitalize(type_name(t)) + ": " + fname;
+      return "oprot write" + capitalize(type_name(t)) + ": " + fname;
     }
   } else if (t->is_map()) {
     return map_writer((t_map*)t, fname);
   } else if (t->is_struct() || t->is_xception()) {
-    return struct_writer((t_struct*)t, fname);
+    return fname + " writeTo: oprot";
   } else if (t->is_list()) {
     return list_writer((t_list*)t, fname);
   } else if (t->is_set()) {
     return set_writer((t_set*)t, fname);
   } else if (t->is_enum()) {
-    return "iprot writeI32: " + fname;
+    return "oprot writeI32: " + fname;
   } else {
     throw "Sorry, I don't know how to write this: " + type_name(t);
   }
@@ -826,7 +852,11 @@ string t_st_generator::read_val(t_type* t) {
   } else if (t->is_map()) {
     return map_reader((t_map*)t);
   } else if (t->is_struct() || t->is_xception()) {
-    return struct_reader((t_struct*)t);
+    // Parenthesised: a read_val result is used as a keyword argument, and
+    // "coll add: Foo readFrom: iprot" would parse as one add:readFrom: send.
+    // Every other branch returns a primary or a bracketed block, so this is
+    // the only one that needs it.
+    return "(" + prefix(type_name(t)) + " readFrom: iprot)";
   } else if (t->is_list()) {
     return list_reader((t_list*)t);
   } else if (t->is_set()) {
@@ -846,32 +876,32 @@ void t_st_generator::generate_send_method(t_function* function) {
   vector<t_field*>::const_iterator fld_iter;
 
   st_method(f_, client_class_name(), "send" + capitalize(signature));
-  f_ << "oprot writeMessageBegin:" << endl;
+  f_ << "oprot writeMessageBegin:" << '\n';
   indent_up();
 
-  f_ << indent() << "(TCallMessage new" << endl;
+  f_ << indent() << "(TCallMessage new" << '\n';
   indent_up();
 
-  f_ << indent() << "name: '" << funname << "'; " << endl << indent() << "seqid: self nextSeqid)."
-     << endl;
+  f_ << indent() << "name: '" << funname << "'; " << '\n' << indent() << "seqid: self nextSeqid)."
+     << '\n';
   indent_down();
   indent_down();
 
   f_ << indent() << "oprot writeStructBegin: "
-     << "(TStruct new name: '" + capitalize(camelcase(funname)) + "_args')." << endl;
+     << "(TStruct new name: '" + capitalize(camelcase(funname)) + "_args')." << '\n';
 
   for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
     string fname = camelcase((*fld_iter)->get_name());
 
     f_ << indent() << "oprot writeFieldBegin: (TField new name: '" << fname
        << "'; type: " << type_to_enum((*fld_iter)->get_type()) << "; id: " << (*fld_iter)->get_key()
-       << ")." << endl;
+       << ")." << '\n';
 
-    f_ << indent() << write_val((*fld_iter)->get_type(), fname) << "." << endl << indent()
-       << "oprot writeFieldEnd." << endl;
+    f_ << indent() << write_val((*fld_iter)->get_type(), fname) << "." << '\n' << indent()
+       << "oprot writeFieldEnd." << '\n';
   }
 
-  f_ << indent() << "oprot writeFieldStop; writeStructEnd; writeMessageEnd." << endl;
+  f_ << indent() << "oprot writeFieldStop; writeStructEnd; writeMessageEnd." << '\n';
   f_ << indent() << "oprot transport flush";
 
   st_close_method(f_);
@@ -895,12 +925,17 @@ void t_st_generator::generate_recv_method(t_function* function) {
     result.append(exception);
   }
 
+  // The envelope is read with iprot, like the struct inside it. A client that
+  // never calls outProtocol: has oprot and iprot pointing at the same object,
+  // which is why reading the envelope from oprot went unnoticed; one that does
+  // would read the reply from the protocol it writes to. The flush is a write
+  // side operation and stays on oprot.
   st_method(f_, client_class_name(), "recv" + capitalize(funname));
-  f_ << "| f msg res | " << endl << indent() << "msg := oprot readMessageBegin." << endl << indent()
-     << "self validateRemoteMessage: msg." << endl << indent()
-     << "res := " << struct_reader(&result) << "." << endl << indent() << "oprot readMessageEnd."
-     << endl << indent() << "oprot transport flush." << endl << indent()
-     << "res exception ifNotNil: [res exception signal]." << endl << indent() << "^ res";
+  f_ << "| msg res | " << '\n' << indent() << "msg := iprot readMessageBegin." << '\n' << indent()
+     << "self validateRemoteMessage: msg." << '\n' << indent()
+     << "res := " << struct_reader(&result) << "." << '\n' << indent() << "iprot readMessageEnd."
+     << '\n' << indent() << "oprot transport flush." << '\n' << indent()
+     << "res exception ifNotNil: [res exception signal]." << '\n' << indent() << "^ res";
   st_close_method(f_);
 }
 
@@ -939,7 +974,7 @@ void t_st_generator::generate_service_client(t_service* tservice) {
     extends_client = extends + "Client";
   }
 
-  f_ << extends_client << " subclass: #" << prefix(client_class_name()) << endl
+  f_ << extends_client << " subclass: #" << prefix(client_class_name()) << '\n'
      << "\tinstanceVariableNames: ''\n"
      << "\tclassVariableNames: ''\n"
      << "\tpoolDictionaries: ''\n"
@@ -950,11 +985,11 @@ void t_st_generator::generate_service_client(t_service* tservice) {
     string signature = function_signature(*f_iter);
 
     st_method(f_, client_class_name(), signature);
-    f_ << function_types_comment(*f_iter) << endl << indent() << "self send"
-       << capitalize(signature) << "." << endl;
+    f_ << function_types_comment(*f_iter) << '\n' << indent() << "self send"
+       << capitalize(signature) << "." << '\n';
 
     if (!(*f_iter)->is_oneway()) {
-      f_ << indent() << "^ self recv" << capitalize(funname) << " success " << endl;
+      f_ << indent() << "^ self recv" << capitalize(funname) << " success " << '\n';
     }
 
     st_close_method(f_);
@@ -1037,6 +1072,8 @@ string t_st_generator::type_to_enum(t_type* type) {
       return "TType i64";
     case t_base_type::TYPE_DOUBLE:
       return "TType double";
+    default:
+      throw "compiler error: unhandled type";
     }
   } else if (type->is_enum()) {
     return "TType i32";
@@ -1052,5 +1089,10 @@ string t_st_generator::type_to_enum(t_type* type) {
 
   throw "INVALID TYPE IN type_to_enum: " + type->get_name();
 }
+
+std::string t_st_generator::display_name() const {
+  return "Smalltalk";
+}
+
 
 THRIFT_REGISTER_GENERATOR(st, "Smalltalk", "")

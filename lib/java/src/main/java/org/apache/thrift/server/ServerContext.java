@@ -17,33 +17,39 @@
  * under the License.
  */
 
-/**
- * Interface for storing server's connection context.
- */
+/** Interface for storing server's connection context. */
 package org.apache.thrift.server;
+
+import java.net.SocketAddress;
 
 public interface ServerContext {
 
   /**
-   * Returns an object that implements the given interface to allow access to
-   * application specific contexts.
+   * Returns an object that implements the given interface to allow access to application specific
+   * contexts.
    *
    * @param iface A Class defining an interface that the result must implement
    * @return an object that implements the interface
-   * @throws RuntimeException If the context cannot be unwrapped to the provided
-   *           class
+   * @throws RuntimeException If the context cannot be unwrapped to the provided class
    */
   <T> T unwrap(Class<T> iface);
 
   /**
-   * Returns true if this server context is a wrapper for the provided
-   * application specific context interface argument or returns false otherwise.
+   * Returns true if this server context is a wrapper for the provided application specific context
+   * interface argument or returns false otherwise.
    *
    * @param iface a Class defining the underlying context
-   * @return true if this implements the interface can be unwrapped to the
-   *         provided class
-   * @throws RuntimeException if an error occurs while determining whether the
-   *           provided class can be unwrapped from this context.
+   * @return true if this implements the interface can be unwrapped to the provided class
+   * @throws RuntimeException if an error occurs while determining whether the provided class can be
+   *     unwrapped from this context.
    */
   boolean isWrapperFor(Class<?> iface);
+
+  /**
+   * Set the remote socket address for this ServerContext. The remoteAddress is null when transport
+   * is not socket based
+   *
+   * @param remoteAddress The remote socket address, may be null.
+   */
+  default void setRemoteAddress(SocketAddress remoteAddress) {}
 }

@@ -17,8 +17,11 @@
 # under the License.
 #
 
-gen-dart/thrift_test/lib/thrift_test.dart: ../ThriftTest.thrift
-	$(THRIFT) --gen dart ../ThriftTest.thrift
+# DART and DARTPUB come from configure. "pub" as a standalone program is gone
+# as of Dart 3, so DARTPUB is "$(DART) pub".
+
+gen-dart/thrift_test/lib/thrift_test.dart: ../v0.16/ThriftTest.thrift
+	$(THRIFT) --gen dart ../v0.16/ThriftTest.thrift
 
 pub-get-gen: gen-dart/thrift_test/lib/thrift_test.dart
 	cd gen-dart/thrift_test; ${DARTPUB} get
@@ -30,7 +33,19 @@ stubs: gen-dart/thrift_test/lib/thrift_test.dart pub-get
 
 precross: stubs
 
-check: stubs
+check: stubs recursion-test
+
+# Recursion-depth regression test (THRIFT-6056). The null-safe SDK it needs is
+# now the only kind the library builds against, so it runs as part of check.
+gen-dart/Recursive/lib/Recursive.dart: ../Recursive.thrift
+	$(THRIFT) --gen dart ../Recursive.thrift
+
+recursion-stubs: gen-dart/Recursive/lib/Recursive.dart
+	cd gen-dart/Recursive; ${DARTPUB} get
+	cd recursion_depth_test; ${DARTPUB} get
+
+recursion-test: recursion-stubs
+	cd recursion_depth_test; ${DART} test
 
 clean-local:
 	$(RM) -r gen-dart/ test_client/.pub
@@ -48,5 +63,9 @@ dist-hook:
 client: stubs
 	${DART} test_client/bin/main.dart
 
+distdir:
+	$(MAKE) $(AM_MAKEFLAGS) distdir-am
+
 EXTRA_DIST = \
-	test_client
+	test_client \
+	recursion_depth_test

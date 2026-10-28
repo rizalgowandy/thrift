@@ -26,6 +26,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 // Deprecated: Use DEFAULT_MAX_FRAME_SIZE instead.
@@ -60,8 +61,10 @@ func NewTFramedTransportFactory(factory TTransportFactory) TTransportFactory {
 
 // Deprecated: Use NewTFramedTransportFactoryConf instead.
 func NewTFramedTransportFactoryMaxLength(factory TTransportFactory, maxLength uint32) TTransportFactory {
+	safeMax := min(maxLength, math.MaxInt32)
+
 	return NewTFramedTransportFactoryConf(factory, &TConfiguration{
-		MaxFrameSize: int32(maxLength),
+		MaxFrameSize: int32(safeMax),
 
 		noPropagation: true,
 	})
@@ -133,34 +136,36 @@ func (p *TFramedTransport) Read(buf []byte) (read int, err error) {
 		// Make sure we return the read buffer back to pool
 		// after we finished reading from it.
 		if p.readBuf != nil && p.readBuf.Len() == 0 {
-			returnBufToPool(&p.readBuf)
+			bufPool.put(&p.readBuf)
 		}
 	}()
 
-	if p.readBuf != nil {
+	// Loop rather than recurse: an empty frame yields no bytes, so a peer
+	// can drive one iteration per 4 bytes it sends, and a stack frame per
+	// iteration would not be bounded by anything.
+	for {
+		if p.readBuf != nil {
+			read, err = p.readBuf.Read(buf)
+			if err != io.EOF {
+				return
+			}
 
-		read, err = p.readBuf.Read(buf)
-		if err != io.EOF {
-			return
+			// For bytes.Buffer.Read, EOF would only happen when read is zero,
+			// but still, do a sanity check,
+			// in case that behavior is changed in a future version of go stdlib.
+			// When that happens, just return nil error,
+			// and let the caller call Read again to read the next frame.
+			if read > 0 {
+				return read, nil
+			}
 		}
 
-		// For bytes.Buffer.Read, EOF would only happen when read is zero,
-		// but still, do a sanity check,
-		// in case that behavior is changed in a future version of go stdlib.
-		// When that happens, just return nil error,
-		// and let the caller call Read again to read the next frame.
-		if read > 0 {
-			return read, nil
+		// Reaching here means that the last Read finished the last frame,
+		// so we need to read the next frame into readBuf now.
+		if err = p.readFrame(); err != nil {
+			return read, err
 		}
 	}
-
-	// Reaching here means that the last Read finished the last frame,
-	// so we need to read the next frame into readBuf now.
-	if err = p.readFrame(); err != nil {
-		return read, err
-	}
-	newRead, err := p.Read(buf[read:])
-	return read + newRead, err
 }
 
 func (p *TFramedTransport) ReadByte() (c byte, err error) {
@@ -175,7 +180,7 @@ func (p *TFramedTransport) ReadByte() (c byte, err error) {
 
 func (p *TFramedTransport) ensureWriteBufferBeforeWrite() {
 	if p.writeBuf == nil {
-		p.writeBuf = getBufFromPool()
+		p.writeBuf = bufPool.get()
 	}
 }
 
@@ -196,8 +201,16 @@ func (p *TFramedTransport) WriteString(s string) (n int, err error) {
 }
 
 func (p *TFramedTransport) Flush(ctx context.Context) error {
-	defer returnBufToPool(&p.writeBuf)
 	size := p.writeBuf.Len()
+	defer bufPool.put(&p.writeBuf)
+
+	// readFrame refuses a frame larger than the configured maximum, and so does
+	// a peer holding the same configuration. THeaderTransport.Flush holds the
+	// frames it writes to the same limit. A refused frame is dropped with the
+	// buffer.
+	if err := checkWriteFrameSize(p.cfg, size); err != nil {
+		return err
+	}
 	buf := p.buffer[:4]
 	binary.BigEndian.PutUint32(buf, uint32(size))
 	_, err := p.transport.Write(buf)
@@ -215,9 +228,9 @@ func (p *TFramedTransport) Flush(ctx context.Context) error {
 
 func (p *TFramedTransport) readFrame() error {
 	if p.readBuf != nil {
-		returnBufToPool(&p.readBuf)
+		bufPool.put(&p.readBuf)
 	}
-	p.readBuf = getBufFromPool()
+	p.readBuf = bufPool.get()
 
 	buf := p.buffer[:4]
 	if _, err := io.ReadFull(p.reader, buf); err != nil {

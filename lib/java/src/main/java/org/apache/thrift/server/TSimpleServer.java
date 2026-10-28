@@ -19,18 +19,17 @@
 
 package org.apache.thrift.server;
 
+import java.net.SocketAddress;
 import org.apache.thrift.TException;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.SocketAddressProvider;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Simple singlethreaded server for testing.
- *
- */
+/** Simple singlethreaded server for testing. */
 public class TSimpleServer extends TServer {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TSimpleServer.class.getName());
@@ -39,6 +38,7 @@ public class TSimpleServer extends TServer {
     super(args);
   }
 
+  @Override
   public void serve() {
     try {
       serverTransport_.listen();
@@ -72,6 +72,11 @@ public class TSimpleServer extends TServer {
           outputProtocol = outputProtocolFactory_.getProtocol(outputTransport);
           if (eventHandler_ != null) {
             connectionContext = eventHandler_.createContext(inputProtocol, outputProtocol);
+            SocketAddress remoteAddress =
+                client instanceof SocketAddressProvider
+                    ? ((SocketAddressProvider) client).getRemoteSocketAddress()
+                    : null;
+            connectionContext.setRemoteAddress(remoteAddress);
           }
           while (true) {
             if (eventHandler_ != null) {
@@ -104,7 +109,6 @@ public class TSimpleServer extends TServer {
       if (outputTransport != null) {
         outputTransport.close();
       }
-
     }
     setServing(false);
   }

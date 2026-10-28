@@ -1,6 +1,6 @@
 ## Thrift interface description language
 
-For Thrift version 0.17.0.
+For Thrift version 0.26.0.
 
 The Thrift interface definition language (IDL) allows for the definition of [Thrift Types](/docs/types). A Thrift IDL file is processed by the Thrift code generator to produce code for the various target languages to support the defined structs and services in the IDL file.
 
@@ -42,7 +42,7 @@ A namespace declares which namespaces/package/module/etc. the type definitions i
 
 ## Definition
 
-    [7]  Definition      ::=  Const | Typedef | Enum | Senum | Struct | Union | Exception | Service
+    [7]  Definition      ::=  Const | Typedef | Enum | Struct | Union | Exception | Service
 
 ### Const
 
@@ -60,17 +60,38 @@ An enum creates an enumerated type, with named values. If no constant value is s
 
     [10] Enum            ::=  'enum' Identifier '{' (Identifier ('=' IntConstant)? ListSeparator?)* '}'
 
-### Senum
+The `enum.flags` annotation marks an enum as a set of bit flags:
 
-Senum (and Slist) are now deprecated and should both be replaced with String.
+```thrift
+enum Permissions {
+  Read = 1,
+  Write = 2,
+  ReadWrite = 3,
+} (enum.flags)
+```
 
-    [11] Senum           ::=  'senum' Identifier '{' (Literal ListSeparator?)* '}'
+The C# (`netstd`) generator adds `[Flags]`. The Python generator uses `enum.Flag`,
+or `enum.IntFlag` with `--gen py:enum,type_hints`. Flag enums require Python 3.6
+or later. Unannotated enums keep their existing behavior. The annotation does not
+assign values or check that they are powers of two; zero and composite values are
+allowed. The wire representation remains an `i32`. Python preserves unknown flag
+bits when reading and writing values, allowing peers with different versions of
+an enum to exchange new flags without losing them. Bitwise complement also
+preserves this behavior: `permissions & ~Permissions.Read` clears `Read` without
+removing unknown bits. The complement uses signed integer semantics, so
+`~Permissions.Read` can have a negative value.
+
+Python flag values compare and hash by value (and, for `Flag`, by enum type when
+comparing). Unknown values are not retained in the enum's member cache; use `==`
+rather than `is` to compare them. With `--gen py:enum`, integer arguments to flag
+fields are converted to the enum type in immutable structs and exceptions as
+well as mutable structs.
 
 ### Struct
 
 Structs are the fundamental compositional type in Thrift. The name of each field must be unique within the struct.
 
-    [12] Struct          ::=  'struct' Identifier 'xsd_all'? '{' Field* '}'
+    [11] Struct          ::=  'struct' Identifier 'xsd_all'? '{' Field* '}'
 
 N.B.: The `xsd_all` keyword has some purpose internal to Facebook but serves no purpose in Thrift itself. Use of this feature is strongly discouraged
 
@@ -78,7 +99,7 @@ N.B.: The `xsd_all` keyword has some purpose internal to Facebook but serves no 
 
 Unions are similar to structs, except that they provide a means to transport exactly one field of a possible set of fields, just like union {} in C++. Consequently, union members are implicitly considered optional (see requiredness).
 
-    [13] Union          ::=  'union' Identifier 'xsd_all'? '{' Field* '}'
+    [12] Union          ::=  'union' Identifier 'xsd_all'? '{' Field* '}'
 
 N.B.: The `xsd_all` keyword has some purpose internal to Facebook but serves no purpose in Thrift itself. Use of this feature is strongly discouraged
 
@@ -86,27 +107,27 @@ N.B.: The `xsd_all` keyword has some purpose internal to Facebook but serves no 
 
 Exceptions are similar to structs except that they are intended to integrate with the native exception handling mechanisms in the target languages. The name of each field must be unique within the exception.
 
-    [14] Exception       ::=  'exception' Identifier '{' Field* '}'
+    [13] Exception       ::=  'exception' Identifier '{' Field* '}'
 
 ### Service
 
 A service provides the interface for a set of functionality provided by a Thrift server. The interface is simply a list of functions. A service can extend another service, which simply means that it provides the functions of the extended service in addition to its own.
 
-    [15] Service         ::=  'service' Identifier ( 'extends' Identifier )? '{' Function* '}'
+    [14] Service         ::=  'service' Identifier ( 'extends' Identifier )? '{' Function* '}'
 
 ## Field
 
-    [16] Field           ::=  FieldID? FieldReq? FieldType Identifier ('=' ConstValue)? XsdFieldOptions ListSeparator?
+    [15] Field           ::=  FieldID? FieldReq? FieldType Identifier ('=' ConstValue)? XsdFieldOptions ListSeparator?
 
 ### Field ID
 
-    [17] FieldID         ::=  IntConstant ':'
+    [16] FieldID         ::=  IntConstant ':'
 
 ### Field Requiredness
 
 There are two explicit requiredness values, and a third one that is applied implicitly if neither  *required* nor *optional* are given: *default* requiredness.
 
-    [18] FieldReq        ::=  'required' | 'optional' 
+    [17] FieldReq        ::=  'required' | 'optional' 
 
 The general rules for requiredness are as follows:
 
@@ -146,53 +167,57 @@ The major point to keep in mind here is the fact, that any unwritten default val
 
 N.B.: These have some internal purpose at Facebook but serve no current purpose in Thrift. The use of these options is strongly discouraged.
 
-    [19] XsdFieldOptions ::=  'xsd_optional'? 'xsd_nillable'? XsdAttrs?
+    [18] XsdFieldOptions ::=  'xsd_optional'? 'xsd_nillable'? XsdAttrs?
 
-    [20] XsdAttrs        ::=  'xsd_attrs' '{' Field* '}'
+    [19] XsdAttrs        ::=  'xsd_attrs' '{' Field* '}'
 
 ## Functions
 
-    [21] Function        ::=  'oneway'? FunctionType Identifier '(' Field* ')' Throws? ListSeparator?
+    [20] Function        ::=  'oneway'? FunctionType Identifier '(' Field* ')' Throws? ListSeparator?
 
-    [22] FunctionType    ::=  FieldType | 'void'
+    [21] FunctionType    ::=  FieldType | 'void'
 
-    [23] Throws          ::=  'throws' '(' Field* ')'
+    [22] Throws          ::=  'throws' '(' Field* ')'
 
 ## Types
 
-    [24] FieldType       ::=  Identifier | BaseType | ContainerType
+    [23] FieldType       ::=  Identifier | BaseType | ContainerType
 
-    [25] DefinitionType  ::=  BaseType | ContainerType
+    [24] DefinitionType  ::=  BaseType | ContainerType
 
-    [26] BaseType        ::=  'bool' | 'byte' | 'i8' | 'i16' | 'i32' | 'i64' | 'double' | 'string' | 'binary' | 'slist'
+    [25] BaseType        ::=  'bool' | 'byte' | 'i8' | 'i16' | 'i32' | 'i64' | 'double' | 'string' | 'binary' | 'uuid'
 
-    [27] ContainerType   ::=  MapType | SetType | ListType
+    [26] ContainerType   ::=  MapType | SetType | ListType
 
-    [28] MapType         ::=  'map' CppType? '<' FieldType ',' FieldType '>'
+    [27] MapType         ::=  'map' CppType? '<' FieldType ',' FieldType '>'
 
-    [29] SetType         ::=  'set' CppType? '<' FieldType '>'
+    [28] SetType         ::=  'set' CppType? '<' FieldType '>'
 
-    [30] ListType        ::=  'list' '<' FieldType '>' CppType?
+    [29] ListType        ::=  'list' CppType? '<' FieldType '>' 
 
-    [31] CppType         ::=  'cpp_type' Literal
+    [30] CppType         ::=  'cpp_type' Literal
 
 ## Constant Values
 
-    [32] ConstValue      ::=  IntConstant | DoubleConstant | Literal | Identifier | ConstList | ConstMap
+    [31] ConstValue      ::=  IntConstant | DoubleConstant | Literal | Identifier | ConstList | ConstMap
 
-    [33] IntConstant     ::=  ('+' | '-')? Digit+
+    [32] IntConstant     ::=  ('+' | '-')? Digit+
 
-    [34] DoubleConstant  ::=  ('+' | '-')? Digit* ('.' Digit+)? ( ('E' | 'e') IntConstant )?
+    [33] DoubleConstant  ::=  ('+' | '-')? Digit* ('.' Digit+)? ( ('E' | 'e') IntConstant )?
 
-    [35] ConstList       ::=  '[' (ConstValue ListSeparator?)* ']'
+    [34] ConstList       ::=  '[' (ConstValue ListSeparator?)* ']'
 
-    [36] ConstMap        ::=  '{' (ConstValue ':' ConstValue ListSeparator?)* '}'
+    [35] ConstMap        ::=  '{' (ConstValue ':' ConstValue ListSeparator?)* '}'
 
 ## Basic Definitions
 
 ### Literal
 
-    [37] Literal         ::=  ('"' [^"]* '"') | ("'" [^']* "'")
+A literal is enclosed in double or single quotes and cannot contain a line break. Inside a literal, a backslash starts one of the escape sequences listed below; a backslash followed by any other character is an error.
+
+    [36] Literal         ::=  ('"' ( [^"\] | Escape )* '"') | ("'" ( [^'\] | Escape )* "'")
+
+    [37] Escape          ::=  '\' ( '"' | "'" | '\' | 'n' | 'r' | 't' )
 
 ### Identifier
 

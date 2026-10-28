@@ -198,6 +198,7 @@ type
     procedure WriteDouble( const d: Double); override;
     procedure WriteString( const s: string );   override;
     procedure WriteBinary( const b: TBytes); override;
+    procedure WriteUuid( const uuid: TGuid); override;
     //
     function ReadMessageBegin: TThriftMessage; override;
     procedure ReadMessageEnd(); override;
@@ -219,6 +220,7 @@ type
     function ReadDouble:Double; override;
     function ReadString : string;  override;
     function ReadBinary: TBytes; override;
+    function ReadUuid: TGuid; override;
 
 
   strict private
@@ -288,6 +290,7 @@ const
   NAME_MAP    = 'map';
   NAME_LIST   = 'lst';
   NAME_SET    = 'set';
+  NAME_UUID   = 'uid';
 
   INVARIANT_CULTURE : TFormatSettings
                     = ( ThousandSeparator: ',';
@@ -317,6 +320,7 @@ begin
     TType.Map:      result := NAME_MAP;
     TType.Set_:     result := NAME_SET;
     TType.List:     result := NAME_LIST;
+    TType.Uuid:     result := NAME_UUID;
   else
     raise TProtocolExceptionNotImplemented.Create('Unrecognized type ('+IntToStr(Ord(typeID))+')');
   end;
@@ -336,6 +340,7 @@ begin
   else if name = NAME_MAP    then result := TType.Map
   else if name = NAME_LIST   then result := TType.List
   else if name = NAME_SET    then result := TType.Set_
+  else if name = NAME_UUID   then result := TType.Uuid
   else raise TProtocolExceptionNotImplemented.Create('Unrecognized type ('+name+')');
 end;
 
@@ -831,6 +836,11 @@ begin
   WriteJSONBase64( b);
 end;
 
+procedure TJSONProtocolImpl.WriteUuid( const uuid: TGuid);
+begin
+  WriteString( Copy( GuidToString(uuid), 2, 36));  // strip off the { braces }
+end;
+
 
 function TJSONProtocolImpl.ReadJSONString( skipContext : Boolean) : TBytes;
 var buffer : TThriftMemoryStream;
@@ -840,6 +850,7 @@ var buffer : TThriftMemoryStream;
     surrogatePairs: Array[0..1] of Char;
     off : Integer;
     tmp : TBytes;
+    maxSize, count : Int64;
 begin
   highSurogate := #0;
   buffer := TThriftMemoryStream.Create;
@@ -849,8 +860,14 @@ begin
 
     ReadJSONSyntaxChar( QUOTE[0]);
 
+    maxSize := Transport.Configuration.MaxMessageSize;
+    count   := 0;
+
     while TRUE do begin
       ch := FReader.Read;
+      Inc( count);
+      if count > maxSize
+      then raise TTransportExceptionMessageSizeLimit.Create('Message size exceeds limit: '+IntToStr(maxSize));
 
       if (ch = QUOTE[0])
       then Break;
@@ -863,6 +880,7 @@ begin
 
       // distuinguish between \uNNNN and \?
       ch := FReader.Read;
+      Inc( count);
       if (ch <> ESCSEQ[1])
       then begin
         off := Pos( Char(ch), ESCAPE_CHARS);
@@ -876,6 +894,7 @@ begin
       // it is \uXXXX
       SetLength( tmp, 4);
       Transport.ReadAll( tmp, 0, 4);
+      Inc( count, 4);
       wch := (HexVal(tmp[0]) shl 12)
            + (HexVal(tmp[1]) shl 8)
            + (HexVal(tmp[2]) shl 4)
@@ -889,7 +908,7 @@ begin
       end
       else if CharUtils.IsLowSurrogate(char(wch)) then begin
         if highSurogate = #0
-        then TProtocolExceptionInvalidData.Create('Expected high surrogate char');
+        then raise TProtocolExceptionInvalidData.Create('Expected high surrogate char');
         surrogatePairs[0] := highSurogate;
         surrogatePairs[1] := char(wch);
         tmp := TEncoding.UTF8.GetBytes(surrogatePairs);
@@ -924,14 +943,18 @@ end;
 function TJSONProtocolImpl.ReadJSONNumericChars : string;
 var strbld : TThriftStringBuilder;
     ch : Byte;
+    maxSize : Int64;
 begin
   strbld := TThriftStringBuilder.Create;
   try
+    maxSize := Transport.Configuration.MaxMessageSize;
     while TRUE do begin
       ch := FReader.Peek;
       if IsJSONNumeric(ch)
       then strbld.Append( Char(FReader.Read))
       else Break;
+      if strbld.Length > maxSize
+      then raise TTransportExceptionMessageSizeLimit.Create('Message size exceeds limit: '+IntToStr(maxSize));
     end;
     result := strbld.ToString;
 
@@ -1237,12 +1260,18 @@ begin
 end;
 
 
+function TJSONProtocolImpl.ReadUuid: TGuid;
+begin
+  result := StringToGUID( '{' + ReadString + '}');
+end;
+
+
 function TJSONProtocolImpl.GetMinSerializedSize( const aType : TType) : Integer;
 // Return the minimum number of bytes a type will consume on the wire
 begin
   case aType of
-    TType.Stop:    result := 0;
-    TType.Void:    result := 0;
+    TType.Stop:    result := 1;  // T_STOP needs to count itself
+    TType.Void:    result := 1;  // T_VOID needs to count itself
     TType.Bool_:   result := 1;
     TType.Byte_:   result := 1;
     TType.Double_: result := 1;
@@ -1254,6 +1283,7 @@ begin
     TType.Map:     result := 2;  // empty map
     TType.Set_:    result := 2;  // empty set
     TType.List:    result := 2;  // empty list
+    TType.Uuid:    result := 36; // "E236974D-F0B0-4E05-8F29-0B455D41B1A1"
   else
     raise TTransportExceptionBadArgs.Create('Unhandled type code');
   end;

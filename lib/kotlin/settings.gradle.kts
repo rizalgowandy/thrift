@@ -16,6 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+pluginManagement {
+    plugins {
+        kotlin("jvm") version "2.4.20"
+        id("com.ncorti.ktfmt.gradle") version "0.27.0"
+    }
+}
 
 rootProject.name = "libthrift-kotlin"
 

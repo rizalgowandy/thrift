@@ -23,7 +23,14 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/apache/thrift/lib/go/thrift"
+
 	"github.com/apache/thrift/lib/go/test/gopath/src/equalstest"
+)
+
+var (
+	equalstestUUID1 = thrift.Must(thrift.ParseTuuid("6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
+	equalstestUUID2 = thrift.Must(thrift.ParseTuuid("6ba7b811-9dad-11d1-80b4-00c04fd430c8"))
 )
 
 func TestEquals(t *testing.T) {
@@ -117,29 +124,33 @@ func TestEquals(t *testing.T) {
 func genBasicFoo() *equalstest.BasicEqualsFoo {
 	return &equalstest.BasicEqualsFoo{
 		BoolFoo:      true,
-		OptBoolFoo:   &(&struct{ x bool }{true}).x,
+		OptBoolFoo:   new(true),
 		I8Foo:        1,
-		OptI8Foo:     &(&struct{ x int8 }{1}).x,
+		OptI8Foo:     new(int8(1)),
 		I16Foo:       2,
-		OptI16Foo:    &(&struct{ x int16 }{2}).x,
+		OptI16Foo:    new(int16(2)),
 		I32Foo:       3,
-		OptI32Foo:    &(&struct{ x int32 }{3}).x,
+		OptI32Foo:    new(int32(3)),
 		I64Foo:       4,
-		OptI64Foo:    &(&struct{ x int64 }{4}).x,
+		OptI64Foo:    new(int64(4)),
 		DoubleFoo:    5,
-		OptDoubleFoo: &(&struct{ x float64 }{5}).x,
+		OptDoubleFoo: new(float64(6)),
 		StrFoo:       "6",
-		OptStrFoo:    &(&struct{ x string }{"6"}).x,
+		OptStrFoo:    new("6"),
 		BinFoo:       []byte("7"),
 		OptBinFoo:    []byte("7"),
 		EnumFoo:      equalstest.EnumFoo_e1,
-		OptEnumFoo:   equalstest.EnumFooPtr(equalstest.EnumFoo_e1),
+		OptEnumFoo:   new(equalstest.EnumFoo_e1),
 		MyByteFoo:    equalstest.Mybyte(8),
-		OptMyByteFoo: equalstest.MybytePtr(8),
+		OptMyByteFoo: new(equalstest.Mybyte(8)),
 		MyStrFoo:     equalstest.Mystr("9"),
-		OptMyStrFoo:  equalstest.MystrPtr(equalstest.Mystr("9")),
+		OptMyStrFoo:  new(equalstest.Mystr("9")),
 		MyBinFoo:     equalstest.Mybin("10"),
 		OptMyBinFoo:  equalstest.Mybin("10"),
+		UUIDFoo:      equalstestUUID1,
+		OptUUIDFoo:   new(equalstestUUID1),
+		MyUUIDFoo:    equalstest.Myuuid(equalstestUUID1),
+		OptMyUUIDFoo: new(equalstest.Myuuid(equalstestUUID1)),
 	}
 }
 
@@ -172,6 +183,10 @@ func genListFoo() *equalstest.ListEqualsFoo {
 		OptMyStrListFoo:        []equalstest.Mystr{equalstest.Mystr("6"), equalstest.Mystr("5"), equalstest.Mystr("4"), equalstest.Mystr("3"), equalstest.Mystr("2"), equalstest.Mystr("1")},
 		MyBinListFoo:           []equalstest.Mybin{equalstest.Mybin("6"), equalstest.Mybin("5"), equalstest.Mybin("4"), equalstest.Mybin("3"), equalstest.Mybin("2"), equalstest.Mybin("1")},
 		OptMyBinListFoo:        []equalstest.Mybin{equalstest.Mybin("6"), equalstest.Mybin("5"), equalstest.Mybin("4"), equalstest.Mybin("3"), equalstest.Mybin("2"), equalstest.Mybin("1")},
+		UUIDListFoo:            []thrift.Tuuid{equalstestUUID1, equalstestUUID2},
+		OptUUIDListFoo:         []thrift.Tuuid{equalstestUUID1, equalstestUUID2},
+		MyUUIDListFoo:          []equalstest.Myuuid{equalstest.Myuuid(equalstestUUID1), equalstest.Myuuid(equalstestUUID2)},
+		OptMyUUIDListFoo:       []equalstest.Myuuid{equalstest.Myuuid(equalstestUUID1), equalstest.Myuuid(equalstestUUID2)},
 	}
 }
 
@@ -197,6 +212,10 @@ func genSetFoo() *equalstest.SetEqualsFoo {
 		OptMyStrSetFoo:        []equalstest.Mystr{equalstest.Mystr("6"), equalstest.Mystr("5"), equalstest.Mystr("4"), equalstest.Mystr("3"), equalstest.Mystr("2"), equalstest.Mystr("1")},
 		MyBinSetFoo:           []equalstest.Mybin{equalstest.Mybin("6"), equalstest.Mybin("5"), equalstest.Mybin("4"), equalstest.Mybin("3"), equalstest.Mybin("2"), equalstest.Mybin("1")},
 		OptMyBinSetFoo:        []equalstest.Mybin{equalstest.Mybin("6"), equalstest.Mybin("5"), equalstest.Mybin("4"), equalstest.Mybin("3"), equalstest.Mybin("2"), equalstest.Mybin("1")},
+		UUIDSetFoo:            []thrift.Tuuid{equalstestUUID1, equalstestUUID2},
+		OptUUIDSetFoo:         []thrift.Tuuid{equalstestUUID1, equalstestUUID2},
+		MyUUIDSetFoo:          []equalstest.Myuuid{equalstest.Myuuid(equalstestUUID1), equalstest.Myuuid(equalstestUUID2)},
+		OptMyUUIDSetFoo:       []equalstest.Myuuid{equalstest.Myuuid(equalstestUUID1), equalstest.Myuuid(equalstestUUID2)},
 	}
 }
 
@@ -227,12 +246,16 @@ func genMapFoo() *equalstest.MapEqualsFoo {
 		OptInt64MyByteMapFoo:     map[int64]equalstest.Mybyte{6: equalstest.Mybyte(6), 5: equalstest.Mybyte(5), 4: equalstest.Mybyte(4), 3: equalstest.Mybyte(3), 2: equalstest.Mybyte(2), 1: equalstest.Mybyte(1)},
 		MyByteInt64MapFoo:        map[equalstest.Mybyte]int64{equalstest.Mybyte(6): 6, equalstest.Mybyte(5): 5, equalstest.Mybyte(4): 4, equalstest.Mybyte(3): 3, equalstest.Mybyte(2): 2, equalstest.Mybyte(1): 1},
 		OptMyByteInt64MapFoo:     map[equalstest.Mybyte]int64{equalstest.Mybyte(6): 6, equalstest.Mybyte(5): 5, equalstest.Mybyte(4): 4, equalstest.Mybyte(3): 3, equalstest.Mybyte(2): 2, equalstest.Mybyte(1): 1},
+		UUIDMapFoo:               map[int64]thrift.Tuuid{1: equalstestUUID1, 2: equalstestUUID2},
+		OptUUIDMapFoo:            map[int64]thrift.Tuuid{1: equalstestUUID1, 2: equalstestUUID2},
+		MyUUIDMapFoo:             map[int64]equalstest.Myuuid{1: equalstest.Myuuid(equalstestUUID1), 2: equalstest.Myuuid(equalstestUUID2)},
+		OptMyUUIDMapFoo:          map[int64]equalstest.Myuuid{1: equalstest.Myuuid(equalstestUUID1), 2: equalstest.Myuuid(equalstestUUID2)},
 	}
 }
 
 func genInt64Slice(length int) []int64 {
 	ret := make([]int64, length)
-	for i := 0; i < length; i++ {
+	for i := range ret {
 		ret[i] = int64(length - i)
 	}
 	return ret
@@ -240,7 +263,7 @@ func genInt64Slice(length int) []int64 {
 
 func genStringSlice(length int) []string {
 	ret := make([]string, length)
-	for i := 0; i < length; i++ {
+	for i := range ret {
 		ret[i] = strconv.Itoa(length - i)
 	}
 	return ret
@@ -248,7 +271,7 @@ func genStringSlice(length int) []string {
 
 func genBytesSlice(length int) [][]byte {
 	ret := make([][]byte, length)
-	for i := 0; i < length; i++ {
+	for i := range ret {
 		ret[i] = []byte(strconv.Itoa(length - i))
 	}
 	return ret
@@ -256,8 +279,61 @@ func genBytesSlice(length int) [][]byte {
 
 func genInt64StringMap(length int) map[int64]string {
 	ret := make(map[int64]string, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		ret[int64(i)] = strconv.Itoa(i)
 	}
 	return ret
+}
+
+func TestMapEqualsDetectsMissingKey(t *testing.T) {
+	a := &equalstest.MapEqualsFoo{I64StrMapFoo: map[int64]string{1: ""}}
+	b := &equalstest.MapEqualsFoo{I64StrMapFoo: map[int64]string{2: ""}}
+	if a.Equals(b) {
+		t.Error("maps with different key sets must not be equal even when the zero value matches")
+	}
+}
+
+// A Thrift set is unordered, but Go represents it as a slice. Two values
+// holding the same members in a different order are equal.
+func TestSetEqualsIgnoresOrder(t *testing.T) {
+	tgt, src := genSetFoo(), genSetFoo()
+	reverse := func(s []int64) []int64 {
+		out := make([]int64, len(s))
+		for i, v := range s {
+			out[len(s)-1-i] = v
+		}
+		return out
+	}
+	src.I64SetFoo = reverse(src.I64SetFoo)
+	src.StructSetFoo[0], src.StructSetFoo[1] = src.StructSetFoo[1], src.StructSetFoo[0]
+	if !tgt.Equals(src) {
+		t.Error("reordering a set field must not change equality")
+	}
+
+	// Membership still has to match.
+	src = genSetFoo()
+	src.I64SetFoo[0] = -1
+	if tgt.Equals(src) {
+		t.Error("changing a set member must change equality")
+	}
+
+	// So does multiplicity, for a value assembled in memory.
+	tgt, src = genSetFoo(), genSetFoo()
+	tgt.I64SetFoo = []int64{1, 1, 2}
+	src.I64SetFoo = []int64{1, 2, 2}
+	if tgt.Equals(src) {
+		t.Error("sets differing in multiplicity must not be equal")
+	}
+}
+
+// A Thrift list is ordered, so its comparison stays position by position.
+func TestListEqualsKeepsOrder(t *testing.T) {
+	tgt, src := genListFoo(), genListFoo()
+	if !tgt.Equals(src) {
+		t.Error("identical lists must be equal")
+	}
+	src.I64ListFoo[0], src.I64ListFoo[1] = src.I64ListFoo[1], src.I64ListFoo[0]
+	if tgt.Equals(src) {
+		t.Error("reordering a list field must change equality")
+	}
 }

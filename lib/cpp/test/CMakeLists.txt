@@ -47,6 +47,8 @@ set(testgencpp_SOURCES
     gen-cpp/OneWayService.h
     gen-cpp/TypedefTest_types.cpp
     gen-cpp/TypedefTest_types.h
+    gen-cpp/Thrift5272_types.cpp
+    gen-cpp/Thrift5272_types.h
     ThriftTest_extras.cpp
     DebugProtoTest_extras.cpp
 )
@@ -65,6 +67,11 @@ set(testgencpp_cob_SOURCES
 )
 add_library(testgencpp_cob STATIC ${testgencpp_cob_SOURCES})
 
+if (WIN32 AND MSVC)
+    add_library(testgencppCLI STATIC ${testgencpp_SOURCES})
+    set_target_properties(testgencppCLI PROPERTIES COMMON_LANGUAGE_RUNTIME "")
+endif()
+
 add_executable(Benchmark Benchmark.cpp)
 target_link_libraries(Benchmark testgencpp)
 target_link_libraries(Benchmark thrift)
@@ -82,11 +89,25 @@ set(UnitTest_SOURCES
     TServerSocketTest.cpp
     TServerTransportTest.cpp
     ThrifttReadCheckTests.cpp
+    FrameBoundReadBudgetTest.cpp
+    THttpBufferBoundTest.cpp
+    THttpHeaderParseTest.cpp
+    TUuidTest.cpp
+    Thrift5272.cpp
 )
+
+# TWebSocketServer is only built when OpenSSL is available.
+if(OPENSSL_FOUND AND WITH_OPENSSL)
+    list(APPEND UnitTest_SOURCES TWebSocketServerTest.cpp)
+endif()
 
 add_executable(UnitTests ${UnitTest_SOURCES})
 target_link_libraries(UnitTests testgencpp ${Boost_LIBRARIES})
 target_link_libraries(UnitTests thrift)
+if(WITH_ZLIB)
+    target_link_libraries(UnitTests thriftz)
+    target_compile_definitions(UnitTests PRIVATE THRIFT_TEST_WITH_ZLIB)
+endif()
 add_test(NAME UnitTests COMMAND UnitTests)
 if(MSVC)
     # Disable C4503: decorated name length exceeded, name was truncated
@@ -94,6 +115,25 @@ if(MSVC)
     set_property( TARGET UnitTests APPEND_STRING PROPERTY COMPILE_FLAGS /wd4503 )
 endif()
 
+# Test the THRIFT_TUUID_SUPPORT_BOOST_UUID compiler directive globally set on the target
+add_executable(UnitTestsUuid
+    UnitTestMain.cpp
+    TUuidTestBoost.cpp
+)
+target_link_libraries(UnitTestsUuid testgencpp ${Boost_LIBRARIES})
+target_link_libraries(UnitTestsUuid thrift)
+target_compile_definitions(UnitTestsUuid PUBLIC THRIFT_TUUID_SUPPORT_BOOST_UUID)
+add_test(NAME UnitTestsUuid COMMAND UnitTestsUuid)
+
+# Test not setting the THRIFT_TUUID_SUPPORT_BOOST_UUID compiler directive as with the test above.
+# The test does set the directive before including the thrift header to test the behaviour
+add_executable(UnitTestsUuidNoDirective
+    UnitTestMain.cpp
+    TUuidTestBoostNoDirective.cpp
+)
+target_link_libraries(UnitTestsUuidNoDirective testgencpp ${Boost_LIBRARIES})
+target_link_libraries(UnitTestsUuidNoDirective thrift)
+add_test(NAME UnitTestsUuidNoDirective COMMAND UnitTestsUuidNoDirective)
 
 set( TInterruptTest_SOURCES
      TSocketInterruptTest.cpp
@@ -110,7 +150,7 @@ target_link_libraries(TInterruptTest
     ${Boost_LIBRARIES}
 )
 target_link_libraries(TInterruptTest thrift)
-if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT MINGW)
+if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT MINGW)
     target_link_libraries(TInterruptTest -lrt)
 endif ()
 add_test(NAME TInterruptTest COMMAND TInterruptTest -- "${CMAKE_CURRENT_SOURCE_DIR}/../../../test/keys")
@@ -121,10 +161,21 @@ target_link_libraries(TServerIntegrationTest
     ${Boost_LIBRARIES}
 )
 target_link_libraries(TServerIntegrationTest thrift)
-if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT MINGW)
+if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT MINGW)
     target_link_libraries(TServerIntegrationTest -lrt)
 endif ()
 add_test(NAME TServerIntegrationTest COMMAND TServerIntegrationTest)
+
+add_executable(TServerExceptionTest TServerExceptionTest.cpp)
+target_link_libraries(TServerExceptionTest
+    testgencpp_cob
+    ${Boost_LIBRARIES}
+)
+target_link_libraries(TServerExceptionTest thrift)
+if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT MINGW)
+    target_link_libraries(TServerExceptionTest -lrt)
+endif ()
+add_test(NAME TServerExceptionTest COMMAND TServerExceptionTest)
 
 if(WITH_ZLIB)
 include_directories(SYSTEM "${ZLIB_INCLUDE_DIRS}")
@@ -189,11 +240,22 @@ target_link_libraries(TPipedTransportTest
 target_link_libraries(TPipedTransportTest thrift)
 add_test(NAME TPipedTransportTest COMMAND TPipedTransportTest)
 
+add_executable(TTransportFactoryConfigTest TTransportFactoryConfigTest.cpp)
+target_link_libraries(TTransportFactoryConfigTest
+    ${Boost_LIBRARIES}
+)
+target_link_libraries(TTransportFactoryConfigTest thrift)
+if(WITH_ZLIB)
+    target_link_libraries(TTransportFactoryConfigTest thriftz)
+    target_compile_definitions(TTransportFactoryConfigTest PRIVATE THRIFT_TEST_WITH_ZLIB)
+endif()
+add_test(NAME TTransportFactoryConfigTest COMMAND TTransportFactoryConfigTest)
+
 set(AllProtocolsTest_SOURCES
     AllProtocolTests.cpp
     AllProtocolTests.tcc
-    GenericHelpers
-    )
+    GenericHelpers.h
+)
 
 add_executable(AllProtocolsTest ${AllProtocolsTest_SOURCES})
 target_link_libraries(AllProtocolsTest
@@ -307,6 +369,15 @@ if(WITH_LIBEVENT)
       target_link_libraries(TNonblockingSSLServerTest thriftnb)
       add_test(NAME TNonblockingSSLServerTest COMMAND TNonblockingSSLServerTest -- "${CMAKE_CURRENT_SOURCE_DIR}/../../../test/keys")
     endif(OPENSSL_FOUND AND WITH_OPENSSL)
+
+    set(TEvhttpServerRequestContextTest_SOURCES TEvhttpServerRequestContextTest.cpp)
+    add_executable(TEvhttpServerRequestContextTest ${TEvhttpServerRequestContextTest_SOURCES})
+    include_directories(${LIBEVENT_INCLUDE_DIRS})
+    target_link_libraries(TEvhttpServerRequestContextTest
+        ${Boost_LIBRARIES}
+    )
+    target_link_libraries(TEvhttpServerRequestContextTest thriftnb)
+    add_test(NAME TEvhttpServerRequestContextTest COMMAND TEvhttpServerRequestContextTest)
 endif()
 
 if(OPENSSL_FOUND AND WITH_OPENSSL)
@@ -324,10 +395,17 @@ target_link_libraries(SecurityTest
     ${Boost_LIBRARIES}
 )
 target_link_libraries(SecurityTest thrift)
-if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT MINGW)
+if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT MINGW)
     target_link_libraries(SecurityTest -lrt)
 endif ()
 add_test(NAME SecurityTest COMMAND SecurityTest -- "${CMAKE_CURRENT_SOURCE_DIR}/../../../test/keys")
+
+add_executable(TSSLSocketMatchNameTest TSSLSocketMatchNameTest.cpp)
+target_link_libraries(TSSLSocketMatchNameTest
+    ${Boost_LIBRARIES}
+)
+target_link_libraries(TSSLSocketMatchNameTest thrift)
+add_test(NAME TSSLSocketMatchNameTest COMMAND TSSLSocketMatchNameTest)
 
 add_executable(SecurityFromBufferTest SecurityFromBufferTest.cpp)
 target_link_libraries(SecurityFromBufferTest
@@ -335,7 +413,7 @@ target_link_libraries(SecurityFromBufferTest
     ${Boost_LIBRARIES}
 )
 target_link_libraries(SecurityFromBufferTest thrift)
-if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT MINGW)
+if (NOT MSVC AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT MINGW)
     target_link_libraries(SecurityFromBufferTest -lrt)
 endif ()
 add_test(NAME SecurityFromBufferTest COMMAND SecurityFromBufferTest -- "${CMAKE_CURRENT_SOURCE_DIR}/../../../test/keys")
@@ -348,6 +426,8 @@ endif()
 
 #
 # Common thrift code generation rules
+#
+# files from /test
 #
 
 add_custom_command(OUTPUT gen-cpp/AnnotationTest_constants.cpp
@@ -387,8 +467,14 @@ add_custom_command(OUTPUT gen-cpp/SecondService.cpp gen-cpp/ThriftTest_constants
     COMMAND ${THRIFT_COMPILER} --gen cpp ${PROJECT_SOURCE_DIR}/test/ThriftTest.thrift
 )
 
+# files from /lib/cpp/test
+
 add_custom_command(OUTPUT gen-cpp/OneWayService.cpp gen-cpp/OneWayTest_types.h gen-cpp/OneWayService.h
     COMMAND ${THRIFT_COMPILER} --gen cpp ${CMAKE_CURRENT_SOURCE_DIR}/OneWayTest.thrift
+)
+
+add_custom_command(OUTPUT gen-cpp/Thrift5272_types.cpp gen-cpp/Thrift5272_types.h
+    COMMAND ${THRIFT_COMPILER} --gen cpp ${CMAKE_CURRENT_SOURCE_DIR}/Thrift5272.thrift
 )
 
 add_custom_command(OUTPUT gen-cpp/ChildService.cpp gen-cpp/ChildService.h gen-cpp/ParentService.cpp gen-cpp/ParentService.h gen-cpp/proc_types.cpp gen-cpp/proc_types.h

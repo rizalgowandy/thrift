@@ -1,4 +1,5 @@
 <?php
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements. See the NOTICE file
@@ -20,21 +21,25 @@
  * @package thrift.protocol
  */
 
+declare(strict_types=1);
+
 namespace Thrift\Factory;
 
 use Thrift\Protocol\TCompactProtocol;
+use Thrift\Transport\TTransport;
 
 /**
  * Compact Protocol Factory
  */
 class TCompactProtocolFactory implements TProtocolFactory
 {
-    public function __construct()
-    {
+    public function __construct(
+        private int $maxStringSize = TCompactProtocol::DEFAULT_MAX_STRING_SIZE,
+    ) {
     }
 
-    public function getProtocol($trans)
+    public function getProtocol(TTransport $trans): TCompactProtocol
     {
-        return new TCompactProtocol($trans);
+        return new TCompactProtocol($trans, $this->maxStringSize);
     }
 }

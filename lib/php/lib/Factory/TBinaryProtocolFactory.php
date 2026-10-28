@@ -1,4 +1,5 @@
 <?php
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements. See the NOTICE file
@@ -20,26 +21,27 @@
  * @package thrift.protocol
  */
 
+declare(strict_types=1);
+
 namespace Thrift\Factory;
 
 use Thrift\Protocol\TBinaryProtocol;
+use Thrift\Transport\TTransport;
 
 /**
  * Binary Protocol Factory
  */
 class TBinaryProtocolFactory implements TProtocolFactory
 {
-    private $strictRead_ = false;
-    private $strictWrite_ = false;
-
-    public function __construct($strictRead = false, $strictWrite = false)
-    {
-        $this->strictRead_ = $strictRead;
-        $this->strictWrite_ = $strictWrite;
+    public function __construct(
+        private bool $strictRead = false,
+        private bool $strictWrite = false,
+        private int $maxStringSize = TBinaryProtocol::DEFAULT_MAX_STRING_SIZE,
+    ) {
     }
 
-    public function getProtocol($trans)
+    public function getProtocol(TTransport $trans): TBinaryProtocol
     {
-        return new TBinaryProtocol($trans, $this->strictRead_, $this->strictWrite_);
+        return new TBinaryProtocol($trans, $this->strictRead, $this->strictWrite, $this->maxStringSize);
     }
 }

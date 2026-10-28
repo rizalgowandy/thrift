@@ -33,8 +33,6 @@
 #include <inttypes.h>
 #endif
 
-#include <boost/scoped_array.hpp>
-
 #include <thrift/protocol/TProtocolTypes.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TTransport.h>
@@ -74,7 +72,7 @@ public:
   static const int THRIFT_MAX_VARINT32_BYTES = 5;
 
   /// Use default buffer sizes.
-  explicit THeaderTransport(const std::shared_ptr<TTransport>& transport, 
+  explicit THeaderTransport(const std::shared_ptr<TTransport>& transport,
                             std::shared_ptr<TConfiguration> config = nullptr)
     : TVirtualTransport(transport, config),
       outTransport_(transport),
@@ -106,6 +104,8 @@ public:
 
   uint32_t readSlow(uint8_t* buf, uint32_t len) override;
   void flush() override;
+
+  void onewayComplete() override { outTransport_->onewayComplete(); }
 
   void resizeTransformBuffer(uint32_t additionalSize = 0);
 
@@ -142,9 +142,7 @@ public:
    */
   void transform(uint8_t* ptr, uint32_t sz);
 
-  uint16_t getNumTransforms() const {
-    return safe_numeric_cast<uint16_t>(writeTrans_.size());
-  }
+  uint16_t getNumTransforms() const;
 
   void setTransform(uint16_t transId) { writeTrans_.push_back(transId); }
 
@@ -196,6 +194,11 @@ protected:
 
   static const uint32_t MAX_FRAME_SIZE = 0x3FFFFFFF;
 
+  // A header frame carries at most one transform. ZLIB is the only transform
+  // this implementation applies, and no writer lists it more than once, so a
+  // frame that declares more is rejected before the transform list is built.
+  static const int16_t MAX_TRANSFORMS = 1;
+
   int16_t protoId;
   uint16_t clientType;
   uint32_t seqId;
@@ -223,7 +226,7 @@ protected:
 
   // Buffers to use for transform processing
   uint32_t tBufSize_;
-  boost::scoped_array<uint8_t> tBuf_;
+  std::unique_ptr<uint8_t[]> tBuf_;
 
   void readString(uint8_t*& ptr, /* out */ std::string& str, uint8_t const* headerBoundary);
 
@@ -267,7 +270,7 @@ public:
    * Wraps the transport into a header one.
    */
   std::shared_ptr<TTransport> getTransport(std::shared_ptr<TTransport> trans) override {
-    return std::shared_ptr<TTransport>(new THeaderTransport(trans));
+    return std::shared_ptr<TTransport>(new THeaderTransport(trans, trans->getConfiguration()));
   }
 };
 }

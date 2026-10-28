@@ -18,7 +18,6 @@
 use clap::{clap_app, value_t};
 use log::*;
 
-use thrift;
 use thrift::protocol::{
     TBinaryInputProtocolFactory, TBinaryOutputProtocolFactory, TCompactInputProtocolFactory,
     TCompactOutputProtocolFactory, TInputProtocolFactory, TOutputProtocolFactory,
@@ -94,7 +93,7 @@ fn run() -> thrift::Result<()> {
     let (i_protocol_factory, o_protocol_factory): (
         Box<dyn TInputProtocolFactory>,
         Box<dyn TOutputProtocolFactory>,
-    ) = match &*protocol {
+    ) = match protocol {
         "binary" => (
             Box::new(TBinaryInputProtocolFactory::new()),
             Box::new(TBinaryOutputProtocolFactory::new()),
@@ -118,7 +117,7 @@ fn run() -> thrift::Result<()> {
     // different processor) this isn't possible.
     //
     // Since what I'm doing is uncommon I'm just going to duplicate the code
-    match &*service {
+    match service {
         "part" => run_meal_server(
             socket,
             r_transport_factory,
@@ -332,6 +331,11 @@ impl recursive::TestServiceSyncHandler for RecursiveTestServerHandler {
     }
 
     fn handle_echo_co_rec(&self, item: recursive::CoRec) -> thrift::Result<recursive::CoRec> {
+        println!("{:?}", item);
+        Ok(item)
+    }
+
+    fn handle_echo_co_union(&self, item: recursive::CoUnion) -> thrift::Result<recursive::CoUnion> {
         println!("{:?}", item);
         Ok(item)
     }

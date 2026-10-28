@@ -21,20 +21,18 @@ package org.apache.thrift.transport;
 
 import java.io.Closeable;
 import java.net.InetSocketAddress;
-
 import org.apache.thrift.TConfiguration;
 
-/**
- * Server transport. Object which provides client transports.
- *
- */
+/** Server transport. Object which provides client transports. */
 public abstract class TServerTransport implements Closeable {
 
-  public static abstract class AbstractServerTransportArgs<T extends AbstractServerTransportArgs<T>> {
+  public abstract static class AbstractServerTransportArgs<
+      T extends AbstractServerTransportArgs<T>> {
     int backlog = 0; // A value of 0 means the default value will be used (currently set at 50)
     int clientTimeout = 0;
     InetSocketAddress bindAddr;
     int maxFrameSize = TConfiguration.DEFAULT_MAX_FRAME_SIZE;
+    int maxMessageSize = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
 
     public T backlog(int backlog) {
       this.backlog = backlog;
@@ -60,14 +58,19 @@ public abstract class TServerTransport implements Closeable {
       this.maxFrameSize = maxFrameSize;
       return (T) this;
     }
+
+    public T maxMessageSize(int maxMessageSize) {
+      this.maxMessageSize = maxMessageSize;
+      return (T) this;
+    }
   }
 
   public abstract void listen() throws TTransportException;
 
   /**
-   * Accept incoming connection on the server socket. When there is no incoming connection available:
-   * either it should block infinitely in a blocking implementation, either it should return null in
-   * a nonblocking implementation.
+   * Accept incoming connection on the server socket. When there is no incoming connection
+   * available: either it should block infinitely in a blocking implementation, either it should
+   * return null in a nonblocking implementation.
    *
    * @return new connection
    * @throws TTransportException if IO error.
@@ -77,12 +80,10 @@ public abstract class TServerTransport implements Closeable {
   public abstract void close();
 
   /**
-   * Optional method implementation. This signals to the server transport
-   * that it should break out of any accept() or listen() that it is currently
-   * blocked on. This method, if implemented, MUST be thread safe, as it may
-   * be called from a different thread context than the other TServerTransport
-   * methods.
+   * Optional method implementation. This signals to the server transport that it should break out
+   * of any accept() or listen() that it is currently blocked on. This method, if implemented, MUST
+   * be thread safe, as it may be called from a different thread context than the other
+   * TServerTransport methods.
    */
   public void interrupt() {}
-
 }

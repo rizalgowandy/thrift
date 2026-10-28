@@ -20,34 +20,20 @@
 package org.apache.thrift;
 
 import java.io.ByteArrayOutputStream;
-
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.protocol.TProtocolFactory;
 import org.apache.thrift.transport.TIOStreamTransport;
 import org.apache.thrift.transport.TTransportException;
 
-/**
- * Generic utility for easily serializing objects into a byte array or Java
- * String.
- *
- */
+/** Generic utility for easily serializing objects into a byte array or Java String. */
 public class TSerializer {
 
-  /**
-   * This is the byte array that data is actually serialized into
-   */
+  /** This is the byte array that data is actually serialized into */
   private final ByteArrayOutputStream baos_ = new ByteArrayOutputStream();
 
-  /**
-   * This transport wraps that byte array
-   */
-  private final TIOStreamTransport transport_;
-
-  /**
-   * Internal protocol used for serializing objects.
-   */
-  private TProtocol protocol_;
+  /** Internal protocol used for serializing objects. */
+  private final TProtocol protocol_;
 
   /**
    * Create a new TSerializer that uses the TBinaryProtocol by default.
@@ -59,41 +45,39 @@ public class TSerializer {
   }
 
   /**
-   * Create a new TSerializer. It will use the TProtocol specified by the
-   * factory that is passed in.
+   * Create a new TSerializer. It will use the TProtocol specified by the factory that is passed in.
    *
    * @param protocolFactory Factory to create a protocol
-   * @throws TTransportException if there an error initializing the underlying transport.
+   * @throws TTransportException if there is an error initializing the underlying transport.
    */
   public TSerializer(TProtocolFactory protocolFactory) throws TTransportException {
-    transport_ = new TIOStreamTransport(new TConfiguration(), baos_);
+    /* This transport wraps that byte array */
+    TIOStreamTransport transport_ = new TIOStreamTransport(new TConfiguration(), baos_);
     protocol_ = protocolFactory.getProtocol(transport_);
   }
 
   /**
-   * Serialize the Thrift object into a byte array. The process is simple,
-   * just clear the byte array output, write the object into it, and grab the
-   * raw bytes.
+   * Serialize the Thrift object into a byte array. The process is simple, just clear the byte array
+   * output, write the object into it, and grab the raw bytes.
    *
    * @param base The object to serialize
    * @return Serialized object in byte[] format
    * @throws TException if an error is encountered during serialization.
    */
-  public byte[] serialize(TBase base) throws TException {
+  public byte[] serialize(TBase<?, ?> base) throws TException {
     baos_.reset();
     base.write(protocol_);
     return baos_.toByteArray();
   }
 
   /**
-   * Serialize the Thrift object into a Java string, using the default JVM
-   * charset encoding.
+   * Serialize the Thrift object into a Java string, using the default JVM charset encoding.
    *
    * @param base The object to serialize
    * @return Serialized object as a String
    * @throws TException if an error is encountered during serialization.
    */
-  public String toString(TBase base) throws TException {
+  public String toString(TBase<?, ?> base) throws TException {
     return new String(serialize(base));
   }
 }

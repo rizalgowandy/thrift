@@ -83,6 +83,8 @@ pub struct TStoredInputProtocol<'a> {
     message_ident: Option<TMessageIdentifier>,
 }
 
+// Erroneous suggestion by clippy
+#[allow(clippy::needless_lifetimes)]
 impl<'a> TStoredInputProtocol<'a> {
     /// Create a `TStoredInputProtocol` that delegates all calls other than
     /// `TInputProtocol::read_message_begin(...)` to a `wrapped`
@@ -100,6 +102,8 @@ impl<'a> TStoredInputProtocol<'a> {
     }
 }
 
+// Erroneous suggestion by clippy
+#[allow(clippy::needless_lifetimes)]
 impl<'a> TInputProtocol for TStoredInputProtocol<'a> {
     fn read_message_begin(&mut self) -> crate::Result<TMessageIdentifier> {
         self.message_ident.take().ok_or_else(|| {
@@ -134,6 +138,10 @@ impl<'a> TInputProtocol for TStoredInputProtocol<'a> {
         self.inner.read_bytes()
     }
 
+    fn skip_binary(&mut self) -> crate::Result<()> {
+        self.inner.skip_binary()
+    }
+
     fn read_bool(&mut self) -> crate::Result<bool> {
         self.inner.read_bool()
     }
@@ -156,6 +164,10 @@ impl<'a> TInputProtocol for TStoredInputProtocol<'a> {
 
     fn read_double(&mut self) -> crate::Result<f64> {
         self.inner.read_double()
+    }
+
+    fn read_uuid(&mut self) -> crate::Result<uuid::Uuid> {
+        self.inner.read_uuid()
     }
 
     fn read_string(&mut self) -> crate::Result<String> {

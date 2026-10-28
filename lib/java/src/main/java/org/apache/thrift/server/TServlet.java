@@ -1,17 +1,15 @@
 package org.apache.thrift.server;
 
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
-
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import org.apache.thrift.TException;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TProtocol;
@@ -19,9 +17,7 @@ import org.apache.thrift.protocol.TProtocolFactory;
 import org.apache.thrift.transport.TIOStreamTransport;
 import org.apache.thrift.transport.TTransport;
 
-/**
- * Servlet implementation class ThriftServer
- */
+/** Servlet implementation class ThriftServer */
 public class TServlet extends HttpServlet {
 
   private final TProcessor processor;
@@ -35,7 +31,9 @@ public class TServlet extends HttpServlet {
   /**
    * @see HttpServlet#HttpServlet()
    */
-  public TServlet(TProcessor processor, TProtocolFactory inProtocolFactory,
+  public TServlet(
+      TProcessor processor,
+      TProtocolFactory inProtocolFactory,
       TProtocolFactory outProtocolFactory) {
     super();
     this.processor = processor;
@@ -52,8 +50,7 @@ public class TServlet extends HttpServlet {
   }
 
   /**
-   * @see HttpServlet#doPost(HttpServletRequest request, HttpServletResponse
-   *      response)
+   * @see HttpServlet#doPost(HttpServletRequest request, HttpServletResponse response)
    */
   @Override
   protected void doPost(HttpServletRequest request, HttpServletResponse response)
@@ -88,28 +85,32 @@ public class TServlet extends HttpServlet {
   }
 
   /**
-   * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse
-   *      response)
+   * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
    */
+  @Override
   protected void doGet(HttpServletRequest request, HttpServletResponse response)
       throws ServletException, IOException {
     doPost(request, response);
   }
 
   public void addCustomHeader(final String key, final String value) {
-    this.customHeaders.add(new Map.Entry<String, String>() {
-      public String getKey() {
-        return key;
-      }
+    this.customHeaders.add(
+        new Map.Entry<String, String>() {
+          @Override
+          public String getKey() {
+            return key;
+          }
 
-      public String getValue() {
-        return value;
-      }
+          @Override
+          public String getValue() {
+            return value;
+          }
 
-      public String setValue(String value) {
-        return null;
-      }
-    });
+          @Override
+          public String setValue(String value) {
+            return null;
+          }
+        });
   }
 
   public void setCustomHeaders(Collection<Map.Entry<String, String>> headers) {

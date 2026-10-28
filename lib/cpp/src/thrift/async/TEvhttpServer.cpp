@@ -108,13 +108,20 @@ void TEvhttpServer::request(struct evhttp_request* req, void* self) {
 }
 
 void TEvhttpServer::process(struct evhttp_request* req) {
-  auto* ctx = new RequestContext(req);
-  return processor_->process(std::bind(&TEvhttpServer::complete,
-                                                          this,
-                                                          ctx,
-                                                          std::placeholders::_1),
-                             ctx->ibuf,
-                             ctx->obuf);
+  // Own the request context until responsibility for it is handed to the
+  // completion callback. processor_->process() can throw before it invokes
+  // that callback -- for example on a request body too short to parse a
+  // message header -- and the unique_ptr then frees the context as the stack
+  // unwinds. On the normal path complete() takes over and deletes it, so
+  // ownership is released here once process() has returned without throwing.
+  std::unique_ptr<RequestContext> ctx(new RequestContext(req));
+  processor_->process(std::bind(&TEvhttpServer::complete,
+                                this,
+                                ctx.get(),
+                                std::placeholders::_1),
+                      ctx->ibuf,
+                      ctx->obuf);
+  ctx.release();
 }
 
 void TEvhttpServer::complete(RequestContext* ctx, bool success) {
@@ -127,13 +134,13 @@ void TEvhttpServer::complete(RequestContext* ctx, bool success) {
   int rv = evhttp_add_header(ctx->req->output_headers, "Content-Type", "application/x-thrift");
   if (rv != 0) {
     // TODO: Log an error.
-    std::cerr << "evhttp_add_header failed " << __FILE__ << ":" << __LINE__ << std::endl;
+    std::cerr << "evhttp_add_header failed " << __FILE__ << ":" << __LINE__ << '\n';
   }
 
   struct evbuffer* buf = evbuffer_new();
   if (buf == nullptr) {
     // TODO: Log an error.
-    std::cerr << "evbuffer_new failed " << __FILE__ << ":" << __LINE__ << std::endl;
+    std::cerr << "evbuffer_new failed " << __FILE__ << ":" << __LINE__ << '\n';
   } else {
     uint8_t* obuf;
     uint32_t sz;
@@ -141,8 +148,7 @@ void TEvhttpServer::complete(RequestContext* ctx, bool success) {
     int ret = evbuffer_add(buf, obuf, sz);
     if (ret != 0) {
       // TODO: Log an error.
-      std::cerr << "evhttp_add failed with " << ret << " " << __FILE__ << ":" << __LINE__
-                << std::endl;
+      std::cerr << "evhttp_add failed with " << ret << " " << __FILE__ << ":" << __LINE__ << '\n';
     }
   }
 

@@ -19,7 +19,6 @@
 
 package org.apache.thrift.transport;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,44 +27,39 @@ import java.net.URL;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpHost;
-import org.apache.http.HttpResponse;
-import org.apache.http.HttpStatus;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.ByteArrayEntity;
+import org.apache.hc.client5.http.classic.HttpClient;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.config.Configurable;
+import org.apache.hc.client5.http.config.ConnectionConfig;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.MinimalHttpClient;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.util.Timeout;
 import org.apache.thrift.TConfiguration;
+import org.apache.thrift.THttpClientResponseHandler;
 
 /**
- * HTTP implementation of the TTransport interface. Used for working with a
- * Thrift web services implementation (using for example TServlet).
+ * HTTP implementation of the TTransport interface. Used for working with a Thrift web services
+ * implementation (using for example TServlet).
  *
- * This class offers two implementations of the HTTP transport.
- * One uses HttpURLConnection instances, the other HttpClient from Apache
- * Http Components.
- * The chosen implementation depends on the constructor used to
- * create the THttpClient instance.
- * Using the THttpClient(String url) constructor or passing null as the
- * HttpClient to THttpClient(String url, HttpClient client) will create an
- * instance which will use HttpURLConnection.
+ * <p>This class offers two implementations of the HTTP transport. One uses HttpURLConnection
+ * instances, the other HttpClient from Apache Http Components. The chosen implementation depends on
+ * the constructor used to create the THttpClient instance. Using the THttpClient(String url)
+ * constructor or passing null as the HttpClient to THttpClient(String url, HttpClient client) will
+ * create an instance which will use HttpURLConnection.
  *
- * When using HttpClient, the following configuration leads to 5-15%
- * better performance than the HttpURLConnection implementation:
+ * <p>When using HttpClient, the following configuration leads to 5-15% better performance than the
+ * HttpURLConnection implementation:
  *
- * http.protocol.version=HttpVersion.HTTP_1_1
- * http.protocol.content-charset=UTF-8
- * http.protocol.expect-continue=false
- * http.connection.stalecheck=false
+ * <p>http.protocol.version=HttpVersion.HTTP_1_1 http.protocol.content-charset=UTF-8
+ * http.protocol.expect-continue=false http.connection.stalecheck=false
  *
- * Also note that under high load, the HttpURLConnection implementation
- * may exhaust the open file descriptor limit.
+ * <p>Also note that under high load, the HttpURLConnection implementation may exhaust the open file
+ * descriptor limit.
  *
  * @see <a href="https://issues.apache.org/jira/browse/THRIFT-970">THRIFT-970</a>
  */
-
 public class THttpClient extends TEndpointTransport {
 
   private final URL url_;
@@ -78,13 +72,14 @@ public class THttpClient extends TEndpointTransport {
 
   private int readTimeout_ = 0;
 
-  private Map<String,String> customHeaders_ = null;
+  private Map<String, String> customHeaders_ = null;
 
   private final HttpHost host;
 
   private final HttpClient client;
 
-  private static final Map<String, String> DEFAULT_HEADERS = Collections.unmodifiableMap(getDefaultHeaders());
+  private static final Map<String, String> DEFAULT_HEADERS =
+      Collections.unmodifiableMap(getDefaultHeaders());
 
   public static class Factory extends TTransportFactory {
 
@@ -137,12 +132,17 @@ public class THttpClient extends TEndpointTransport {
     }
   }
 
-  public THttpClient(TConfiguration config, String url, HttpClient client) throws TTransportException {
+  public THttpClient(TConfiguration config, String url, HttpClient client)
+      throws TTransportException {
     super(config);
     try {
       url_ = new URL(url);
       this.client = client;
-      this.host = new HttpHost(url_.getHost(), -1 == url_.getPort() ? url_.getDefaultPort() : url_.getPort(), url_.getProtocol());
+      this.host =
+          new HttpHost(
+              url_.getProtocol(),
+              url_.getHost(),
+              -1 == url_.getPort() ? url_.getDefaultPort() : url_.getPort());
     } catch (IOException iox) {
       throw new TTransportException(iox);
     }
@@ -153,21 +153,41 @@ public class THttpClient extends TEndpointTransport {
     try {
       url_ = new URL(url);
       this.client = client;
-      this.host = new HttpHost(url_.getHost(), -1 == url_.getPort() ? url_.getDefaultPort() : url_.getPort(), url_.getProtocol());
+      this.host =
+          new HttpHost(
+              url_.getProtocol(),
+              url_.getHost(),
+              -1 == url_.getPort() ? url_.getDefaultPort() : url_.getPort());
     } catch (IOException iox) {
       throw new TTransportException(iox);
     }
   }
 
+  /**
+   * Sets the connect timeout in milliseconds; zero or less leaves it unset.
+   *
+   * <p>With an {@link HttpClient}, the value is used as the connection request timeout (the time to
+   * wait for a connection from the pool) and added on top of the client's default request
+   * configuration. That works for clients that expose their defaults through {@link Configurable},
+   * such as those built with {@code HttpClients.custom()}, and for {@link MinimalHttpClient}. Any
+   * other client keeps its own configuration, and the timeout is not applied to it.
+   */
   public void setConnectTimeout(int timeout) {
     connectTimeout_ = timeout;
   }
 
+  /**
+   * Use instead {@link
+   * org.apache.hc.client5.http.impl.io.BasicHttpClientConnectionManager#setConnectionConfig} or
+   * {@link
+   * org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager#setDefaultConnectionConfig}
+   */
+  @Deprecated
   public void setReadTimeout(int timeout) {
     readTimeout_ = timeout;
   }
 
-  public void setCustomHeaders(Map<String,String> headers) {
+  public void setCustomHeaders(Map<String, String> headers) {
     customHeaders_ = new HashMap<>(headers);
   }
 
@@ -223,15 +243,40 @@ public class THttpClient extends TEndpointTransport {
     requestBuffer_.write(buf, off, len);
   }
 
+  /**
+   * Returns the request configuration for the next request, or null to leave the default request
+   * configuration of the client in effect. A timeout set on this transport is added on top of the
+   * client's own defaults; that needs a client whose defaults are known (see {@link
+   * #setConnectTimeout}).
+   */
   private RequestConfig getRequestConfig() {
-    RequestConfig requestConfig = RequestConfig.DEFAULT;
-    if (connectTimeout_ > 0) {
-      requestConfig = RequestConfig.copy(requestConfig).setConnectionRequestTimeout(connectTimeout_).build();
+    if (connectTimeout_ <= 0) {
+      return null;
     }
+    RequestConfig defaults;
+    if (client instanceof Configurable) {
+      defaults = ((Configurable) client).getConfig();
+    } else if (client instanceof MinimalHttpClient) {
+      // has no default request configuration of its own and uses RequestConfig.DEFAULT
+      defaults = null;
+    } else {
+      // the client's defaults are unknown: leave them in effect, without the timeout
+      return null;
+    }
+    return RequestConfig.copy(defaults != null ? defaults : RequestConfig.DEFAULT)
+        .setConnectionRequestTimeout(Timeout.ofMilliseconds(connectTimeout_))
+        .build();
+  }
+
+  private ConnectionConfig getConnectionConfig() {
+    ConnectionConfig connectionConfig = ConnectionConfig.DEFAULT;
     if (readTimeout_ > 0) {
-      requestConfig = RequestConfig.copy(requestConfig).setSocketTimeout(readTimeout_).build();
+      connectionConfig =
+          ConnectionConfig.copy(connectionConfig)
+              .setSocketTimeout(Timeout.ofMilliseconds(readTimeout_))
+              .build();
     }
-    return requestConfig;
+    return connectionConfig;
   }
 
   private static Map<String, String> getDefaultHeaders() {
@@ -240,22 +285,6 @@ public class THttpClient extends TEndpointTransport {
     headers.put("Accept", "application/x-thrift");
     headers.put("User-Agent", "Java/THttpClient/HC");
     return headers;
-  }
-
-  /**
-   * copy from org.apache.http.util.EntityUtils#consume. Android has it's own httpcore
-   * that doesn't have a consume.
-   */
-  private static void consume(final HttpEntity entity) throws IOException {
-      if (entity == null) {
-          return;
-      }
-      if (entity.isStreaming()) {
-          InputStream instream = entity.getContent();
-          if (instream != null) {
-              instream.close();
-          }
-      }
   }
 
   private void flushUsingHttpClient() throws TTransportException {
@@ -270,69 +299,23 @@ public class THttpClient extends TEndpointTransport {
     HttpPost post = new HttpPost(this.url_.getFile());
     try {
       // Set request to path + query string
-      post.setConfig(getRequestConfig());
+      RequestConfig requestConfig = getRequestConfig();
+      if (null != requestConfig) {
+        post.setConfig(requestConfig);
+      }
       DEFAULT_HEADERS.forEach(post::addHeader);
       if (null != customHeaders_) {
         customHeaders_.forEach(post::addHeader);
       }
-      post.setEntity(new ByteArrayEntity(data));
-      HttpResponse response = this.client.execute(this.host, post);
-      handleResponse(response);
+      post.setEntity(new ByteArrayEntity(data, null));
+      inputStream_ = client.execute(this.host, post, new THttpClientResponseHandler());
     } catch (IOException ioe) {
       // Abort method so the connection gets released back to the connection manager
       post.abort();
       throw new TTransportException(ioe);
     } finally {
       resetConsumedMessageSize(-1);
-      post.releaseConnection();
     }
-  }
-
-  private void handleResponse(HttpResponse response) throws TTransportException {
-    // Retrieve the InputStream BEFORE checking the status code so
-    // resources get freed in the with clause.
-    try (InputStream is = response.getEntity().getContent()) {
-      int responseCode = response.getStatusLine().getStatusCode();
-      if (responseCode != HttpStatus.SC_OK) {
-        throw new TTransportException("HTTP Response code: " + responseCode);
-      }
-      byte[] readByteArray = readIntoByteArray(is);
-      try {
-        // Indicate we're done with the content.
-        consume(response.getEntity());
-      } catch (IOException ioe) {
-        // We ignore this exception, it might only mean the server has no
-        // keep-alive capability.
-      }
-      inputStream_ = new ByteArrayInputStream(readByteArray);
-    } catch (IOException ioe) {
-      throw new TTransportException(ioe);
-    }
-  }
-
-  /**
-   * Read the responses into a byte array so we can release the connection
-   * early. This implies that the whole content will have to be read in
-   * memory, and that momentarily we might use up twice the memory (while the
-   * thrift struct is being read up the chain).
-   * Proceeding differently might lead to exhaustion of connections and thus
-   * to app failure.
-   *
-   * @param is input stream
-   * @return read bytes
-   * @throws IOException when exception during read
-   */
-  private static byte[] readIntoByteArray(InputStream is) throws IOException {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    byte[] buf = new byte[1024];
-    int len;
-    do {
-      len = is.read(buf);
-      if (len > 0) {
-        baos.write(buf, 0, len);
-      }
-    } while (-1 != len);
-    return baos.toByteArray();
   }
 
   public void flush() throws TTransportException {
@@ -348,7 +331,7 @@ public class THttpClient extends TEndpointTransport {
 
     try {
       // Create connection object
-      HttpURLConnection connection = (HttpURLConnection)url_.openConnection();
+      HttpURLConnection connection = (HttpURLConnection) url_.openConnection();
 
       // Timeouts, only if explicitly set
       if (connectTimeout_ > 0) {

@@ -16,14 +16,17 @@
 // under the License.
 
 use clap::{clap_app, value_t};
-use env_logger;
 use log::*;
+use rustls::ServerConfig;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Cursor;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use thrift;
+use thrift::OrderedFloat;
 use thrift::protocol::{
     TBinaryInputProtocolFactory, TBinaryOutputProtocolFactory, TCompactInputProtocolFactory,
     TCompactOutputProtocolFactory, TInputProtocolFactory, TOutputProtocolFactory,
@@ -33,8 +36,10 @@ use thrift::transport::{
     TBufferedReadTransportFactory, TBufferedWriteTransportFactory, TFramedReadTransportFactory,
     TFramedWriteTransportFactory, TReadTransportFactory, TWriteTransportFactory,
 };
-use thrift::OrderedFloat;
 use thrift_test::*;
+
+const SERVER_CERT: &[u8] = include_bytes!("../../../keys/server.crt");
+const SERVER_KEY: &[u8] = include_bytes!("../../../keys/server.key");
 
 fn main() {
     env_logger::init();
@@ -53,13 +58,13 @@ fn main() {
 fn run() -> thrift::Result<()> {
     // unsupported options:
     // --pipe
-    // --ssl
     let matches = clap_app!(rust_test_client =>
         (version: "1.0")
         (author: "Apache Thrift Developers <dev@thrift.apache.org>")
         (about: "Rust Thrift test server")
         (@arg port: --port +takes_value "port on which the test server listens")
         (@arg domain_socket: --("domain-socket") +takes_value "Unix Domain Socket on which the test server listens")
+        (@arg ssl: --ssl "Use TLS")
         (@arg transport: --transport +takes_value "transport implementation to use (\"buffered\", \"framed\")")
         (@arg protocol: --protocol +takes_value "protocol implementation to use (\"binary\", \"compact\")")
         (@arg server_type: --("server-type") +takes_value "type of server instantiated (\"simple\", \"thread-pool\")")
@@ -69,6 +74,7 @@ fn run() -> thrift::Result<()> {
 
     let port = value_t!(matches, "port", u16).unwrap_or(9090);
     let domain_socket = matches.value_of("domain_socket");
+    let ssl = matches.is_present("ssl");
     let transport = matches.value_of("transport").unwrap_or("buffered");
     let protocol = matches.value_of("protocol").unwrap_or("binary");
     let server_type = matches.value_of("server_type").unwrap_or("thread-pool");
@@ -76,14 +82,18 @@ fn run() -> thrift::Result<()> {
     let listen_address = format!("127.0.0.1:{}", port);
 
     match domain_socket {
-        None => info!("Server is binding to {}", listen_address),
+        None => info!(
+            "Server is binding to {}{}",
+            listen_address,
+            if ssl { " with TLS" } else { "" }
+        ),
         Some(domain_socket) => info!("Server is binding to {} (UDS)", domain_socket),
     }
 
     let (i_transport_factory, o_transport_factory): (
         Box<dyn TReadTransportFactory>,
         Box<dyn TWriteTransportFactory>,
-    ) = match &*transport {
+    ) = match transport {
         "buffered" => (
             Box::new(TBufferedReadTransportFactory::new()),
             Box::new(TBufferedWriteTransportFactory::new()),
@@ -100,7 +110,7 @@ fn run() -> thrift::Result<()> {
     let (i_protocol_factory, o_protocol_factory): (
         Box<dyn TInputProtocolFactory>,
         Box<dyn TOutputProtocolFactory>,
-    ) = match &*protocol {
+    ) = match protocol {
         "binary" | "multi" | "multi:binary" => (
             Box::new(TBinaryInputProtocolFactory::new()),
             Box::new(TBinaryOutputProtocolFactory::new()),
@@ -116,7 +126,7 @@ fn run() -> thrift::Result<()> {
 
     let test_processor = ThriftTestSyncProcessor::new(ThriftTestSyncHandlerImpl {});
 
-    match &*server_type {
+    match server_type {
         "simple" | "thread-pool" => {
             if protocol == "multi" || protocol == "multic" {
                 let second_service_processor =
@@ -140,6 +150,7 @@ fn run() -> thrift::Result<()> {
                 );
 
                 match domain_socket {
+                    None if ssl => server.listen_tls(&listen_address, tls_config()),
                     None => server.listen(&listen_address),
                     Some(domain_socket) => server.listen_uds(domain_socket),
                 }
@@ -154,6 +165,7 @@ fn run() -> thrift::Result<()> {
                 );
 
                 match domain_socket {
+                    None if ssl => server.listen_tls(&listen_address, tls_config()),
                     None => server.listen(&listen_address),
                     Some(domain_socket) => server.listen_uds(domain_socket),
                 }
@@ -164,6 +176,29 @@ fn run() -> thrift::Result<()> {
     }
 }
 
+fn tls_config() -> Arc<ServerConfig> {
+    Arc::new(
+        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(certificates(SERVER_CERT), private_key(SERVER_KEY))
+            .unwrap(),
+    )
+}
+
+fn certificates(pem: &[u8]) -> Vec<CertificateDer<'static>> {
+    rustls_pemfile::certs(&mut Cursor::new(pem))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
+fn private_key(pem: &[u8]) -> PrivateKeyDer<'static> {
+    rustls_pemfile::private_key(&mut Cursor::new(pem))
+        .unwrap()
+        .unwrap()
+}
+
 struct ThriftTestSyncHandlerImpl;
 impl ThriftTestSyncHandler for ThriftTestSyncHandlerImpl {
     fn handle_test_void(&self) -> thrift::Result<()> {
@@ -172,7 +207,12 @@ impl ThriftTestSyncHandler for ThriftTestSyncHandlerImpl {
     }
 
     fn handle_test_string(&self, thing: String) -> thrift::Result<String> {
-        info!("testString({})", &thing);
+        info!("testString({})", thing);
+        Ok(thing)
+    }
+
+    fn handle_test_uuid(&self, thing: uuid::Uuid) -> thrift::Result<uuid::Uuid> {
+        info!("testUUID({})", thing);
         Ok(thing)
     }
 
@@ -256,7 +296,7 @@ impl ThriftTestSyncHandler for ThriftTestSyncHandlerImpl {
         info!("testMapMap({})", hello);
 
         let mut inner_map_0: BTreeMap<i32, i32> = BTreeMap::new();
-        for i in -4..(0 as i32) {
+        for i in -4..0_i32 {
             inner_map_0.insert(i, i);
         }
 
@@ -385,8 +425,8 @@ impl ThriftTestSyncHandler for ThriftTestSyncHandlerImpl {
 struct SecondServiceSyncHandlerImpl;
 impl SecondServiceSyncHandler for SecondServiceSyncHandlerImpl {
     fn handle_secondtest_string(&self, thing: String) -> thrift::Result<String> {
-        info!("(second)testString({})", &thing);
-        let ret = format!("testString(\"{}\")", &thing);
+        info!("(second)testString({})", thing);
+        let ret = format!("testString(\"{}\")", thing);
         Ok(ret)
     }
 }

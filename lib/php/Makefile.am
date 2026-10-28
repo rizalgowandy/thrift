@@ -40,6 +40,7 @@ endif
 
 phpdir = $(PHP_PREFIX)/
 php_DATA = \
+	lib/StoredMessageProtocol.php \
 	lib/TMultiplexedProcessor.php
 
 phpbasedir = $(phpdir)/Base
@@ -59,12 +60,14 @@ phpexception_DATA = \
 
 phpfactorydir = $(phpdir)/Factory
 phpfactory_DATA = \
+	lib/Factory/TBinaryProtocolAcceleratedFactory.php \
 	lib/Factory/TBinaryProtocolFactory.php \
 	lib/Factory/TCompactProtocolFactory.php \
 	lib/Factory/TJSONProtocolFactory.php \
 	lib/Factory/TProtocolFactory.php \
-	lib/Factory/TStringFuncFactory.php \
-	lib/Factory/TTransportFactory.php
+	lib/Factory/TTransportFactoryInterface.php \
+	lib/Factory/TTransportFactory.php \
+	lib/Factory/TFramedTransportFactory.php
 
 phpprotocoldir = $(phpdir)/Protocol
 phpprotocol_DATA = \
@@ -102,13 +105,8 @@ phpserver_DATA = \
 	lib/Server/TForkingServer.php \
 	lib/Server/TServer.php \
 	lib/Server/TServerTransport.php \
-	lib/Server/TSimpleServer.php
-
-phpstringfuncdir = $(phpdir)/StringFunc
-phpstringfunc_DATA = \
-	lib/StringFunc/Mbstring.php \
-	lib/StringFunc/Core.php \
-	lib/StringFunc/TStringFunc.php
+	lib/Server/TSimpleServer.php \
+	lib/Server/TSSLServerSocket.php
 
 phptransportdir = $(phpdir)/Transport
 phptransport_DATA = \
@@ -119,8 +117,10 @@ phptransport_DATA = \
 	lib/Transport/TMemoryBuffer.php \
 	lib/Transport/TNullTransport.php \
 	lib/Transport/TPhpStream.php \
+	lib/Transport/TPsrHttpClient.php \
 	lib/Transport/TSocket.php \
 	lib/Transport/TSocketPool.php \
+	lib/Transport/TSSLSocket.php \
 	lib/Transport/TTransport.php
 
 phptypedir = $(phpdir)/Type
@@ -129,38 +129,46 @@ phptype_DATA = \
 	lib/Type/TType.php \
 	lib/Type/TConstant.php
 
+# Every file under lib/ has to be in one of the install lists above: a file
+# that is in none of them is left out of "make install" without a warning.
+check-install-lists:
+	@missing=`cd $(srcdir) && find lib -name '*.php' | LC_ALL=C sort | \
+	  while read f; do \
+	    case " $(DATA) " in *" $$f "*) ;; *) echo "$$f" ;; esac; \
+	  done`; \
+	if test -n "$$missing"; then \
+	  echo "lib/php/Makefile.am does not install:"; \
+	  echo "$$missing"; \
+	  exit 1; \
+	fi
+
+check-local: check-install-lists
+
+.PHONY: check-install-lists
+
 clean-local:
 	if [ -f src/ext/thrift_protocol/Makefile ]; then cd src/ext/thrift_protocol/ && $(MAKE) clean; fi
 
+distdir:
+	$(MAKE) $(AM_MAKEFLAGS) distdir-am
 
 EXTRA_DIST = \
 	lib \
-	src/autoload.php \
 	src/ext/thrift_protocol/config.m4 \
 	src/ext/thrift_protocol/config.w32 \
 	src/ext/thrift_protocol/php_thrift_protocol.cpp \
 	src/ext/thrift_protocol/php_thrift_protocol.h \
 	src/ext/thrift_protocol/php_thrift_protocol.stub.php \
 	src/ext/thrift_protocol/php_thrift_protocol_arginfo.h \
-	src/Thrift.php \
-	src/TStringUtils.php \
 	coding_standards.md \
 	thrift_protocol.ini \
+	phpstan.neon \
+	phpstan-baseline.neon \
+	phpunit.xml \
 	README.apache.md \
 	README.md \
-	test/Fixtures.php \
-	test/TestValidators.thrift \
-	test/JsonSerialize/JsonSerializeTest.php \
-	test/Protocol/BinarySerializerTest.php \
-	test/Protocol/TJSONProtocolFixtures.php \
-	test/Protocol/TJSONProtocolTest.php \
-	test/Protocol/TSimpleJSONProtocolFixtures.php \
-	test/Protocol/TSimpleJSONProtocolTest.php \
-	test/Validator/BaseValidatorTest.php \
-	test/Validator/ValidatorTest.php \
-	test/Validator/ValidatorTestOop.php
+	test
 
 
 MAINTAINERCLEANFILES = \
 	Makefile.in
-

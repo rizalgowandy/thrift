@@ -30,7 +30,7 @@ type socketConn struct {
 	net.Conn
 
 	buffer [1]byte
-	closed int32
+	closed atomic.Int32
 }
 
 var _ net.Conn = (*socketConn)(nil)
@@ -67,7 +67,7 @@ func wrapSocketConn(conn net.Conn) *socketConn {
 // It's the same as the previous implementation of TSocket.IsOpen and
 // TSSLSocket.IsOpen before we added connectivity check.
 func (sc *socketConn) isValid() bool {
-	return sc != nil && sc.Conn != nil && atomic.LoadInt32(&sc.closed) == 0
+	return sc != nil && sc.Conn != nil && sc.closed.Load() == 0
 }
 
 // IsOpen checks whether the connection is open.
@@ -114,11 +114,16 @@ func (sc *socketConn) Read(p []byte) (n int, err error) {
 	return sc.Conn.Read(p)
 }
 
+// Close closes the connection and the underlying net.Conn.
+//
+// Only the first call will actually close the underlying connection;
+// subsequent calls return net.ErrClosed error.
 func (sc *socketConn) Close() error {
-	if !sc.isValid() {
-		// Already closed
+	if sc == nil || sc.Conn == nil {
 		return net.ErrClosed
 	}
-	atomic.StoreInt32(&sc.closed, 1)
-	return sc.Conn.Close()
+	if sc.closed.CompareAndSwap(0, 1) {
+		return sc.Conn.Close()
+	}
+	return net.ErrClosed
 }

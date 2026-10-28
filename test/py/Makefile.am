@@ -52,8 +52,14 @@ thrift_gen =                                    \
         gen-py-enum/ThriftTest/__init__.py \
         gen-py-enum/DebugProtoTest/__init__.py \
         gen-py-enum/DoubleConstantsTest/__init__.py \
-        gen-py-enum/Recursive/__init__.py
+        gen-py-enum/Recursive/__init__.py \
+        gen-py-type_hints/ThriftTest/__init__.py \
+        gen-py-type_hints/DebugProtoTest/__init__.py \
+        gen-py-type_hints/DoubleConstantsTest/__init__.py \
+        gen-py-type_hints/Recursive/__init__.py
 
+distdir:
+	$(MAKE) $(AM_MAKEFLAGS) distdir-am
 
 precross: $(thrift_gen)
 BUILT_SOURCES = $(thrift_gen)
@@ -71,35 +77,57 @@ TESTS= $(py_unit_tests)
 
 
 gen-py/%/__init__.py: ../%.thrift $(THRIFT)
-	$(THRIFT) --gen py  $<
+	test -f ../$(notdir $<) \
+	&& $(THRIFT) --gen py  ../$(notdir $<) \
+	|| $(THRIFT) --gen py  $<
 
 gen-py-default/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-default || $(MKDIR_P) gen-py-default
-	$(THRIFT) --gen py -out gen-py-default $<
+	test -f ../$(notdir $<) \
+	&& $(THRIFT) --gen py -out gen-py-default ../$(notdir $<) \
+	|| $(THRIFT) --gen py -out gen-py-default $<
 
 gen-py-slots/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-slots || $(MKDIR_P) gen-py-slots
-	$(THRIFT) --gen py:slots -out gen-py-slots $<
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:slots -out gen-py-slots ../$(notdir $<) \
+	|| $(THRIFT) --gen py:slots -out gen-py-slots $<
 
 gen-py-oldstyle/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-oldstyle || $(MKDIR_P) gen-py-oldstyle
-	$(THRIFT) --gen py:old_style -out gen-py-oldstyle $<
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:old_style -out gen-py-oldstyle ../$(notdir $<) \
+	|| $(THRIFT) --gen py:old_style -out gen-py-oldstyle $<
 
 gen-py-no_utf8strings/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-no_utf8strings || $(MKDIR_P) gen-py-no_utf8strings
-	$(THRIFT) --gen py:no_utf8strings -out gen-py-no_utf8strings $<
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:no_utf8strings -out gen-py-no_utf8strings ../$(notdir $<) \
+	|| $(THRIFT) --gen py:no_utf8strings -out gen-py-no_utf8strings $<
 
 gen-py-dynamic/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-dynamic || $(MKDIR_P) gen-py-dynamic
-	$(THRIFT) --gen py:dynamic -out gen-py-dynamic $<
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:dynamic -out gen-py-dynamic ../$(notdir $<) \
+	|| $(THRIFT) --gen py:dynamic -out gen-py-dynamic $<
 
 gen-py-dynamicslots/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-dynamicslots || $(MKDIR_P) gen-py-dynamicslots
-	$(THRIFT) --gen py:dynamic,slots -out gen-py-dynamicslots $<
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:dynamic,slots -out gen-py-dynamicslots ../$(notdir $<) \
+	|| $(THRIFT) --gen py:dynamic,slots -out gen-py-dynamicslots $<
 
 gen-py-enum/%/__init__.py: ../%.thrift $(THRIFT)
 	test -d gen-py-enum || $(MKDIR_P) gen-py-enum
-	$(THRIFT) --gen py:enum -out gen-py-enum $<
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:enum -out gen-py-enum ../$(notdir $<) \
+	|| $(THRIFT) --gen py:enum -out gen-py-enum $<
+
+gen-py-type_hints/%/__init__.py: ../%.thrift $(THRIFT)
+	test -d gen-py-type_hints || $(MKDIR_P) gen-py-type_hints
+	test ../$(notdir $<) \
+	&& $(THRIFT) --gen py:type_hints,enum -out gen-py-type_hints ../$(notdir $<) \
+	|| $(THRIFT) --gen py:type_hints,enum -out gen-py-type_hints $<
 
 clean-local:
 	$(RM) -r build

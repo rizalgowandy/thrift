@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::protocol::{TInputProtocol, TMessageIdentifier, TOutputProtocol, TStoredInputProtocol};
 
-use super::{handle_process_result, TProcessor};
+use super::{TProcessor, handle_process_result};
 
 const MISSING_SEPARATOR_AND_NO_DEFAULT: &str =
     "missing service separator and no default processor set";
@@ -109,7 +109,7 @@ impl TMultiplexedProcessor {
         o_prot: &mut dyn TOutputProtocol,
     ) -> crate::Result<()> {
         let (svc_name, svc_call) = split_ident_name(&msg_ident.name);
-        debug!("routing svc_name {:?} svc_call {}", &svc_name, &svc_call);
+        debug!("routing svc_name {:?} svc_call {}", svc_name, svc_call);
 
         let processor: Option<Arc<ThreadSafeProcessor>> = {
             let stored = self.stored.lock().unwrap();
@@ -143,7 +143,7 @@ impl TProcessor for TMultiplexedProcessor {
     ) -> crate::Result<()> {
         let msg_ident = i_prot.read_message_begin()?;
 
-        debug!("process incoming msg id:{:?}", &msg_ident);
+        debug!("process incoming msg id:{:?}", msg_ident);
         let res = self.process_message(&msg_ident, i_prot, o_prot);
 
         handle_process_result(&msg_ident, res, o_prot)
@@ -170,8 +170,7 @@ fn split_ident_name(ident_name: &str) -> (Option<&str>, &str) {
             let (_, svc_call) = svc_call.split_at(1); // remove colon from service call name
             (Some(svc_name), svc_call)
         })
-        .or_else(|| Some((None, ident_name)))
-        .unwrap()
+        .unwrap_or((None, ident_name))
 }
 
 fn missing_processor_message(svc_name: Option<&str>) -> String {
@@ -184,8 +183,8 @@ fn missing_processor_message(svc_name: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use std::convert::Into;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use crate::protocol::{
         TBinaryInputProtocol, TBinaryOutputProtocol, TMessageIdentifier, TMessageType,
@@ -198,7 +197,7 @@ mod tests {
     #[test]
     fn should_split_name_into_proper_separator_and_service_call() {
         let ident_name = "foo:bar_call";
-        let (serv, call) = split_ident_name(&ident_name);
+        let (serv, call) = split_ident_name(ident_name);
         assert_eq!(serv, Some("foo"));
         assert_eq!(call, "bar_call");
     }
@@ -206,7 +205,7 @@ mod tests {
     #[test]
     fn should_return_full_ident_if_no_separator_exists() {
         let ident_name = "bar_call";
-        let (serv, call) = split_ident_name(&ident_name);
+        let (serv, call) = split_ident_name(ident_name);
         assert_eq!(serv, None);
         assert_eq!(call, "bar_call");
     }
@@ -272,10 +271,10 @@ mod tests {
             _: &mut dyn TInputProtocol,
             _: &mut dyn TOutputProtocol,
         ) -> crate::Result<()> {
-            let res = self
-                .invoked
-                .compare_and_swap(false, true, Ordering::Relaxed);
-            if res {
+            let res =
+                self.invoked
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed);
+            if res.is_ok() {
                 Ok(())
             } else {
                 Err("failed swap".into())
@@ -312,8 +311,8 @@ mod tests {
         p.process(&mut i, &mut o).unwrap();
 
         // service 1 should have been invoked, not service 2
-        assert_eq!(atm_1.load(Ordering::Relaxed), true);
-        assert_eq!(atm_2.load(Ordering::Relaxed), false);
+        assert!(atm_1.load(Ordering::Relaxed));
+        assert!(!atm_2.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -345,8 +344,8 @@ mod tests {
         p.process(&mut i, &mut o).unwrap();
 
         // service 2 should have been invoked, not service 1
-        assert_eq!(atm_1.load(Ordering::Relaxed), false);
-        assert_eq!(atm_2.load(Ordering::Relaxed), true);
+        assert!(!atm_1.load(Ordering::Relaxed));
+        assert!(atm_2.load(Ordering::Relaxed));
     }
 
     fn build_objects() -> (

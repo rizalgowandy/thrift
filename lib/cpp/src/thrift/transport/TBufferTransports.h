@@ -20,10 +20,10 @@
 #ifndef _THRIFT_TRANSPORT_TBUFFERTRANSPORTS_H_
 #define _THRIFT_TRANSPORT_TBUFFERTRANSPORTS_H_ 1
 
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <boost/scoped_array.hpp>
 
 #include <thrift/transport/TTransport.h>
 #include <thrift/transport/TVirtualTransport.h>
@@ -62,7 +62,7 @@ public:
    * This method is meant to eventually be nonvirtual and inlinable.
    */
   uint32_t read(uint8_t* buf, uint32_t len) {
-    checkReadBytesAvailable(len);
+    checkReadBytesAvailable(budgetBoundToBuffer_ ? bufferedReadLength(len) : len);
     uint8_t* new_rBase = rBase_ + len;
     if (TDB_LIKELY(new_rBase <= rBound_)) {
       std::memcpy(buf, rBase_, len);
@@ -167,6 +167,23 @@ protected:
 
   ~TBufferBase() override = default;
 
+  /**
+   * How much of a read of len bytes the budget should be checked against, for
+   * a transport whose budget describes the buffer's contents.
+   *
+   * read() may return fewer bytes than it was asked for, so a request larger
+   * than the buffer is a short read rather than a budget violation; and an
+   * empty buffer means the budget belongs to a unit that is finished with,
+   * with the next one not yet sized. Neither loosens the bound the protocol is
+   * held to: the checks that gate an allocation -- readStringBody(), the
+   * container element counts -- call checkReadBytesAvailable() directly with
+   * the size the wire declared, and never come through here.
+   */
+  uint32_t bufferedReadLength(uint32_t len) const {
+    auto have = static_cast<uint32_t>(rBound_ - rBase_);
+    return (len > have) ? have : len;
+  }
+
   /// Reads begin here.
   uint8_t* rBase_;
   /// Reads may extend to just before here.
@@ -176,6 +193,16 @@ protected:
   uint8_t* wBase_;
   /// Writes may extend to just before here.
   uint8_t* wBound_;
+
+  /**
+   * Set by a subclass that refills its buffer a unit at a time and binds the
+   * read budget to that unit -- a frame -- while still handing out short
+   * reads across the stream.  See bufferedReadLength().
+   *
+   * A buffer that holds one whole message, and where a read past the end is a
+   * truncated message rather than a short read, leaves this alone.
+   */
+  bool budgetBoundToBuffer_ = false;
 };
 
 /**
@@ -244,6 +271,8 @@ public:
 
   void flush() override;
 
+  void onewayComplete() override { transport_->onewayComplete(); }
+
   /**
    * Returns the origin of the underlying transport
    */
@@ -270,6 +299,11 @@ public:
    */
   uint32_t readAll(uint8_t* buf, uint32_t len) { return TBufferBase::readAll(buf, len); }
 
+  uint32_t readEnd() override {
+    resetConsumedMessageSize();
+    return 0;
+  }
+
 protected:
   void initPointers() {
     setReadBuffer(rBuf_.get(), 0);
@@ -281,8 +315,8 @@ protected:
 
   uint32_t rBufSize_;
   uint32_t wBufSize_;
-  boost::scoped_array<uint8_t> rBuf_;
-  boost::scoped_array<uint8_t> wBuf_;
+  std::unique_ptr<uint8_t[]> rBuf_;
+  std::unique_ptr<uint8_t[]> wBuf_;
 };
 
 /**
@@ -299,7 +333,7 @@ public:
    * Wraps the transport into a buffered one.
    */
   std::shared_ptr<TTransport> getTransport(std::shared_ptr<TTransport> trans) override {
-    return std::shared_ptr<TTransport>(new TBufferedTransport(trans));
+    return std::shared_ptr<TTransport>(new TBufferedTransport(trans, trans->getConfiguration()));
   }
 };
 
@@ -323,7 +357,8 @@ public:
       wBufSize_(DEFAULT_BUFFER_SIZE),
       rBuf_(),
       wBuf_(new uint8_t[wBufSize_]),
-      bufReclaimThresh_((std::numeric_limits<uint32_t>::max)()) {
+      bufReclaimThresh_((std::numeric_limits<uint32_t>::max)()),
+      maxFrameSize_(configuration_->getMaxFrameSize()) {
     initPointers();
   }
 
@@ -371,6 +406,8 @@ public:
 
   void flush() override;
 
+  void onewayComplete() override { transport_->onewayComplete(); }
+
   uint32_t readEnd() override;
 
   uint32_t writeEnd() override;
@@ -415,15 +452,15 @@ protected:
 
     // Pad the buffer so we can insert the size later.
     int32_t pad = 0;
-    this->write((uint8_t*)&pad, sizeof(pad));
+    this->write(reinterpret_cast<uint8_t*>(&pad), sizeof(pad));
   }
 
   std::shared_ptr<TTransport> transport_;
 
   uint32_t rBufSize_;
   uint32_t wBufSize_;
-  boost::scoped_array<uint8_t> rBuf_;
-  boost::scoped_array<uint8_t> wBuf_;
+  std::unique_ptr<uint8_t[]> rBuf_;
+  std::unique_ptr<uint8_t[]> wBuf_;
   uint32_t bufReclaimThresh_;
   uint32_t maxFrameSize_;
 };
@@ -442,7 +479,7 @@ public:
    * Wraps the transport into a framed one.
    */
   std::shared_ptr<TTransport> getTransport(std::shared_ptr<TTransport> trans) override {
-    return std::shared_ptr<TTransport>(new TFramedTransport(trans));
+    return std::shared_ptr<TTransport>(new TFramedTransport(trans, trans->getConfiguration()));
   }
 };
 
@@ -464,7 +501,7 @@ private:
 
     if (buf == nullptr && size != 0) {
       assert(owner);
-      buf = (uint8_t*)std::malloc(size);
+      buf = static_cast<uint8_t*>(std::malloc(size));
       if (buf == nullptr) {
 	throw std::bad_alloc();
       }
@@ -589,7 +626,7 @@ public:
     uint8_t* buf;
     uint32_t sz;
     getBuffer(&buf, &sz);
-    return std::string((char*)buf, (std::string::size_type)sz);
+    return {reinterpret_cast<char*>(buf), static_cast<std::string::size_type>(sz)};
   }
 
   void appendBufferToString(std::string& str) {
@@ -599,7 +636,7 @@ public:
     uint8_t* buf;
     uint32_t sz;
     getBuffer(&buf, &sz);
-    str.append((char*)buf, sz);
+    str.append(reinterpret_cast<char*>(buf), sz);
   }
 
   void resetBuffer() {
@@ -671,6 +708,21 @@ public:
   uint32_t available_read() const {
     // Remember, wBase_ is the real rBound_.
     return static_cast<uint32_t>(wBase_ - rBase_);
+  }
+
+  /**
+   * Binds the read budget to the bytes the buffer currently holds.
+   *
+   * A caller that has placed a complete message into the buffer -- a server
+   * that has already taken the frame apart, say -- can use this to keep the
+   * protocol from sizing a field or a container from a number the message is
+   * too small to carry.  Unlike updateKnownMessageSize() it first discards the
+   * consumption recorded for any earlier message, so it is safe to call before
+   * every message however small the last one was.
+   */
+  void bindMessageSizeToBuffer() {
+    resetConsumedMessageSize();
+    updateKnownMessageSize(available_read());
   }
 
   uint32_t available_write() const { return static_cast<uint32_t>(wBound_ - wBase_); }

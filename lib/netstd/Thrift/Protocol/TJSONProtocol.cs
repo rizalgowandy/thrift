@@ -27,6 +27,10 @@ using Thrift.Protocol.Entities;
 using Thrift.Protocol.Utilities;
 using Thrift.Transport;
 
+#pragma warning disable IDE0079 // net20 - unneeded suppression
+#pragma warning disable IDE0290 // net8 - primary CTOR
+#pragma warning disable IDE0305 // net9 - collection init
+#pragma warning disable IDE0300 // net9 - collection init
 
 namespace Thrift.Protocol
 {
@@ -401,6 +405,10 @@ namespace Thrift.Protocol
         {
             await WriteJsonBase64Async(bytes, cancellationToken);
         }
+        public override async Task WriteUuidAsync(Guid uuid, CancellationToken cancellationToken = default)
+        {
+            await WriteStringAsync(uuid.ToString("D"), cancellationToken);  // no curly braces
+        }
 
         /// <summary>
         ///     Read in a JSON string, unescaping as appropriate.. Skip Reading from the
@@ -420,9 +428,21 @@ namespace Thrift.Protocol
 
                 await ReadJsonSyntaxCharAsync(TJSONProtocolConstants.Quote, cancellationToken);
 
+                // A JSON string is quote-delimited, so unlike a length-prefixed binary
+                // string there is no declared size to reject up front. Bound the running
+                // byte count against the configured max message size so a single string
+                // cannot grow without bound, independent of any transport-level accounting.
+                long maxSize = Trans.Configuration.MaxMessageSize;
+                long count = 0;
+
                 while (true)
                 {
                     var ch = await Reader.ReadAsync(cancellationToken);
+                    count++;
+                    if (count > maxSize)
+                    {
+                        throw new TTransportException(TTransportException.ExceptionType.MessageSizeLimit, "Message size exceeds limit: " + maxSize);
+                    }
                     if (ch == TJSONProtocolConstants.Quote[0])
                     {
                         break;
@@ -431,17 +451,18 @@ namespace Thrift.Protocol
                     // escaped?
                     if (ch != TJSONProtocolConstants.EscSequences[0])
                     {
-#if NETSTANDARD2_0
-                        await buffer.WriteAsync(new[] {ch}, 0, 1, cancellationToken);
-#else
+#if NET5_0_OR_GREATER
                         var wbuf = new[] { ch };
                         await buffer.WriteAsync(wbuf.AsMemory(0, 1), cancellationToken);
+#else
+                        await buffer.WriteAsync(new[] { ch }, 0, 1, cancellationToken);
 #endif
                         continue;
                     }
 
                     // distinguish between \uXXXX and \?
                     ch = await Reader.ReadAsync(cancellationToken);
+                    count++;
                     if (ch != TJSONProtocolConstants.EscSequences[1]) // control chars like \n
                     {
                         var off = Array.IndexOf(TJSONProtocolConstants.EscapeChars, (char) ch);
@@ -450,17 +471,19 @@ namespace Thrift.Protocol
                             throw new TProtocolException(TProtocolException.INVALID_DATA, "Expected control char");
                         }
                         ch = TJSONProtocolConstants.EscapeCharValues[off];
-#if NETSTANDARD2_0
-                        await buffer.WriteAsync(new[] {ch}, 0, 1, cancellationToken);
-#else
+#if NET5_0_OR_GREATER
                         var wbuf = new[] { ch };
                         await buffer.WriteAsync( wbuf.AsMemory(0, 1), cancellationToken);
+#else
+                        await buffer.WriteAsync(new[] { ch }, 0, 1, cancellationToken);
 #endif
                         continue;
                     }
 
                     // it's \uXXXX
+                    Trans.CheckReadBytesAvailable(4);
                     await Trans.ReadAllAsync(_tempBuffer, 0, 4, cancellationToken);
+                    count += 4;
 
                     var wch = (short) ((TJSONProtocolHelper.ToHexVal(_tempBuffer[0]) << 12) +
                                        (TJSONProtocolHelper.ToHexVal(_tempBuffer[1]) << 8) +
@@ -484,20 +507,20 @@ namespace Thrift.Protocol
 
                         codeunits.Add((char) wch);
                         var tmp = Utf8Encoding.GetBytes(codeunits.ToArray());
-#if NETSTANDARD2_0
-                        await buffer.WriteAsync(tmp, 0, tmp.Length, cancellationToken);
-#else
+#if NET5_0_OR_GREATER
                         await buffer.WriteAsync(tmp.AsMemory(0, tmp.Length), cancellationToken);
+#else
+                        await buffer.WriteAsync(tmp, 0, tmp.Length, cancellationToken);
 #endif
                         codeunits.Clear();
                     }
                     else
                     {
                         var tmp = Utf8Encoding.GetBytes(new[] { (char)wch });
-#if NETSTANDARD2_0
-                        await buffer.WriteAsync(tmp, 0, tmp.Length, cancellationToken);
-#else
+#if NET5_0_OR_GREATER
                         await buffer.WriteAsync(tmp.AsMemory( 0, tmp.Length), cancellationToken);
+#else
+                        await buffer.WriteAsync(tmp, 0, tmp.Length, cancellationToken);
 #endif
                     }
                 }
@@ -518,8 +541,17 @@ namespace Thrift.Protocol
         private async ValueTask<string> ReadJsonNumericCharsAsync(CancellationToken cancellationToken)
         {
             var strbld = new StringBuilder();
+            long maxSize = Trans.Configuration.MaxMessageSize;
             while (true)
             {
+                // Numeric literals carry no declared length either; bound the running
+                // count against the configured max message size as digits accumulate.
+                // Checked before the try/catch below, which would otherwise swallow this
+                // size-limit exception via its TTransportException handler.
+                if (strbld.Length > maxSize)
+                {
+                    throw new TTransportException(TTransportException.ExceptionType.MessageSizeLimit, "Message size exceeds limit: " + maxSize);
+                }
                 //TODO: workaround for primitive types with TJsonProtocol, think - how to rewrite into more easy form without exceptions
                 try
                 {
@@ -690,7 +722,9 @@ namespace Thrift.Protocol
 
         public override async Task ReadMessageEndAsync(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             await ReadJsonArrayEndAsync(cancellationToken);
+            Transport.ResetMessageSizeAndConsumedBytes();
         }
 
         public override async ValueTask<TStruct> ReadStructBeginAsync(CancellationToken cancellationToken)
@@ -817,13 +851,18 @@ namespace Thrift.Protocol
             return await ReadJsonBase64Async(cancellationToken);
         }
 
+        public override async ValueTask<Guid> ReadUuidAsync(CancellationToken cancellationToken = default)
+        {
+            return new Guid( await ReadStringAsync(cancellationToken));
+        }
+
         // Return the minimum number of bytes a type will consume on the wire
         public override int GetMinSerializedSize(TType type)
         {
             switch (type)
             {
-                case TType.Stop: return 0;
-                case TType.Void: return 0;
+                case TType.Stop: return 1;  // T_STOP needs to count itself
+                case TType.Void: return 1;  // T_VOID needs to count itself
                 case TType.Bool: return 1;  // written as int  
                 case TType.Byte: return 1;
                 case TType.Double: return 1;
@@ -835,6 +874,7 @@ namespace Thrift.Protocol
                 case TType.Map: return 2;  // empty map
                 case TType.Set: return 2;  // empty set
                 case TType.List: return 2;  // empty list
+                case TType.Uuid: return 36;  // "E236974D-F0B0-4E05-8F29-0B455D41B1A1"
                 default: throw new TProtocolException(TProtocolException.NOT_IMPLEMENTED, "unrecognized type code");
             }
         }
@@ -1002,6 +1042,7 @@ namespace Thrift.Protocol
                 else
                 {
                     // find more easy way to avoid exception on reading primitive types
+                    Proto.Trans.CheckReadBytesAvailable(1);
                     await Proto.Trans.ReadAllAsync(_data, 0, 1, cancellationToken);
                 }
                 return _data[0];
@@ -1018,6 +1059,7 @@ namespace Thrift.Protocol
                 if (!_hasData)
                 {
                     // find more easy way to avoid exception on reading primitive types
+                    Proto.Trans.CheckReadBytesAvailable(1);
                     await Proto.Trans.ReadAllAsync(_data, 0, 1, cancellationToken);
                     _hasData = true;
                 }

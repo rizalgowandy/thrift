@@ -17,26 +17,34 @@
 # under the License.
 #
 
-if GOVERSION_GE_118
 GOBUILDEXTRA = -buildvcs=false
-else
-GOBUILDEXTRA =
-endif
 
-THRIFTARGS = -out gopath/src/ --gen go:thrift_import=github.com/apache/thrift/lib/go/thrift,package_prefix=github.com/apache/thrift/lib/go/test/gopath/src/$(COMPILER_EXTRAFLAG)
+THRIFT_GO_ARGS_BASE = thrift_import=github.com/apache/thrift/lib/go/thrift,package_prefix=github.com/apache/thrift/lib/go/test/gopath/src/
+
+THRIFTARGS = -out gopath/src/ --gen go:$(THRIFT_GO_ARGS_BASE)$(COMPILER_EXTRAFLAG)
 THRIFTTEST = $(top_srcdir)/test/ThriftTest.thrift
+RECURSIVE = $(top_srcdir)/test/Recursive.thrift
 
-# Thrift for GO has problems with complex map keys: THRIFT-2063
+THRIFTARGS_SKIP_REMOTE = -out gopath/src/ --gen go:skip_remote,$(THRIFT_GO_ARGS_BASE)$(COMPILER_EXTRAFLAG)
+
+THRIFTARGS_STRUCT_KEY_ENTRIES = -out gopath/src/ --gen go:struct_key_entries,$(THRIFT_GO_ARGS_BASE)$(COMPILER_EXTRAFLAG)
+
 gopath: $(THRIFT) $(THRIFTTEST) \
+				$(RECURSIVE) \
 				IncludesTest.thrift \
 				NamespacedTest.thrift \
+				NamespacedBaseTest.thrift \
 				MultiplexedProtocolTest.thrift \
 				OnewayTest.thrift \
 				OptionalFieldsTest.thrift \
 				RequiredFieldTest.thrift \
 				ServicesTest.thrift \
+				ContainerKeyTest.thrift \
+				StructKeyTest.thrift \
 				GoTagTest.thrift \
 				TypedefFieldTest.thrift \
+				TypedefStructTest.thrift \
+				TypedefIncludeTest.thrift \
 				RefAnnotationFieldsTest.thrift \
 				UnionDefaultValueTest.thrift \
 				UnionBinaryTest.thrift \
@@ -59,11 +67,24 @@ gopath: $(THRIFT) $(THRIFTTEST) \
 				ConflictArgNamesTest.thrift \
 				ConstOptionalFieldImport.thrift \
 				ConstOptionalField.thrift \
-				ProcessorMiddlewareTest.thrift
-	mkdir -p gopath/src
-	grep -v list.*map.*list.*map $(THRIFTTEST) | grep -v 'set<Insanity>' > ThriftTest.thrift
-	$(THRIFT) $(THRIFTARGS) -r IncludesTest.thrift
+				ProcessorMiddlewareTest.thrift \
+				ClientMiddlewareExceptionTest.thrift \
+				ValidateTest.thrift \
+				ForwardType.thrift \
+				StringParseAllocationTest.thrift \
+				DocCommentTest.thrift \
+				RemoteShadowAlias.thrift \
+				RemoteShadowClient.thrift \
+				RemoteShadowHost.thrift \
+				RemoteShadowTest.thrift \
+				Hyphenated-Name.thrift
+	mkdir -p gopath/src build
+	grep -v 'set<Insanity>' $(THRIFTTEST) > build/ThriftTest.thrift
+	$(THRIFT) $(THRIFTARGS) $(RECURSIVE)
+	$(THRIFT) $(THRIFTARGS) -I build -r IncludesTest.thrift
 	$(THRIFT) $(THRIFTARGS) BinaryKeyTest.thrift
+	$(THRIFT) $(THRIFTARGS) ContainerKeyTest.thrift
+	$(THRIFT) $(THRIFTARGS_STRUCT_KEY_ENTRIES) StructKeyTest.thrift
 	$(THRIFT) $(THRIFTARGS) MultiplexedProtocolTest.thrift
 	$(THRIFT) $(THRIFTARGS) OnewayTest.thrift
 	$(THRIFT) $(THRIFTARGS) OptionalFieldsTest.thrift
@@ -71,6 +92,8 @@ gopath: $(THRIFT) $(THRIFTTEST) \
 	$(THRIFT) $(THRIFTARGS) ServicesTest.thrift
 	$(THRIFT) $(THRIFTARGS) GoTagTest.thrift
 	$(THRIFT) $(THRIFTARGS) TypedefFieldTest.thrift
+	$(THRIFT) $(THRIFTARGS) TypedefStructTest.thrift
+	$(THRIFT) $(THRIFTARGS) -r TypedefIncludeTest.thrift
 	$(THRIFT) $(THRIFTARGS) RefAnnotationFieldsTest.thrift
 	$(THRIFT) $(THRIFTARGS) UnionDefaultValueTest.thrift
 	$(THRIFT) $(THRIFTARGS) UnionBinaryTest.thrift
@@ -91,17 +114,32 @@ gopath: $(THRIFT) $(THRIFTTEST) \
 	$(THRIFT) $(THRIFTARGS) EqualsTest.thrift
 	$(THRIFT) $(THRIFTARGS) ConflictArgNamesTest.thrift
 	$(THRIFT) $(THRIFTARGS) -r ConstOptionalField.thrift
-	$(THRIFT) $(THRIFTARGS) ProcessorMiddlewareTest.thrift
+	$(THRIFT) $(THRIFTARGS_SKIP_REMOTE) ProcessorMiddlewareTest.thrift
+	$(THRIFT) $(THRIFTARGS) ClientMiddlewareExceptionTest.thrift
+	$(THRIFT) $(THRIFTARGS) ValidateTest.thrift
+	$(THRIFT) $(THRIFTARGS) ForwardType.thrift
+	$(THRIFT) $(THRIFTARGS) StringParseAllocationTest.thrift
+	$(THRIFT) $(THRIFTARGS) DocCommentTest.thrift
+	$(THRIFT) $(THRIFTARGS) -r RemoteShadowTest.thrift
+	$(THRIFT) $(THRIFTARGS) Hyphenated-Name.thrift
 	ln -nfs ../../tests gopath/src/tests
 	cp -r ./dontexportrwtest gopath/src
 	touch gopath
 
 check: gopath
-	$(GO) build $(GOBUILDEXTRA) -mod=mod \
+	$(GO) build $(GOBUILDEXTRA) \
 				./gopath/src/includestest \
+				./gopath/src/includestest/test_service-remote \
+				./gopath/src/includestest/extended_service-remote \
+				./gopath/src/includestest/extended2_service-remote \
 				./gopath/src/binarykeytest \
+				./gopath/src/containerkeytest \
+				./gopath/src/structkeytest \
 				./gopath/src/servicestest \
 				./gopath/src/typedeffieldtest \
+				./gopath/src/typedefstructtest \
+				./gopath/src/typedefstructtest/alias_service-remote \
+				./gopath/src/typedefincludetest \
 				./gopath/src/refannotationfieldstest \
 				./gopath/src/errortest	\
 				./gopath/src/namestest \
@@ -115,21 +153,34 @@ check: gopath
 				./gopath/src/duplicateimportstest \
 				./gopath/src/equalstest \
 				./gopath/src/conflictargnamestest \
-				./gopath/src/processormiddlewaretest
-	$(GO) test -mod=mod github.com/apache/thrift/lib/go/thrift
-	$(GO) test -mod=mod ./gopath/src/tests ./gopath/src/dontexportrwtest
+				./gopath/src/processormiddlewaretest \
+				./gopath/src/clientmiddlewareexceptiontest \
+				./gopath/src/validatetest \
+				./gopath/src/forwardtypetest \
+				./gopath/src/remoteshadowtest \
+				./gopath/src/remoteshadowtest/shadow_service-remote \
+				./gopath/src/hyphenated_name \
+				./gopath/src/hyphenated_name/hyphenated_service-remote
+	$(GO) test github.com/apache/thrift/lib/go/thrift
+	$(GO) test ./gopath/src/tests ./gopath/src/dontexportrwtest
 
 clean-local:
-	$(RM) -r gopath ThriftTest.thrift gen-go
+	$(RM) -r gopath build gen-go
 
 client: stubs
-	$(GO) run -mod=mod TestClient.go
+	$(GO) run TestClient.go
+
+distdir:
+	$(MAKE) $(AM_MAKEFLAGS) distdir-am
 
 EXTRA_DIST = \
 	dontexportrwtest \
 	tests \
 	common \
+	go.mod \
+	go.sum \
 	BinaryKeyTest.thrift \
+	ClientMiddlewareExceptionTest.thrift \
 	ConflictArgNamesTest.thrift \
 	ConflictNamespaceServiceTest.thrift \
 	ConflictNamespaceTestA.thrift \
@@ -140,24 +191,38 @@ EXTRA_DIST = \
 	ConflictNamespaceTestF.thrift \
 	ConflictNamespaceTestSuperThing.thrift \
 	ConstOptionalField.thrift \
+	ContainerKeyTest.thrift \
 	ConstOptionalFieldImport.thrift \
+	DocCommentTest.thrift \
 	DontExportRWTest.thrift \
 	DuplicateImportsTest.thrift \
 	ErrorTest.thrift \
 	EqualsTest.thrift \
+	ForwardType.thrift \
 	GoTagTest.thrift \
+	Hyphenated-Name.thrift \
 	IgnoreInitialismsTest.thrift \
 	IncludesTest.thrift \
 	InitialismsTest.thrift \
 	MultiplexedProtocolTest.thrift \
 	NamespacedTest.thrift \
+	NamespacedBaseTest.thrift \
 	NamesTest.thrift \
 	OnewayTest.thrift \
 	OptionalFieldsTest.thrift \
 	ProcessorMiddlewareTest.thrift \
 	RefAnnotationFieldsTest.thrift \
+	RemoteShadowAlias.thrift \
+	RemoteShadowClient.thrift \
+	RemoteShadowHost.thrift \
+	RemoteShadowTest.thrift \
 	RequiredFieldTest.thrift \
 	ServicesTest.thrift \
+	StringParseAllocationTest.thrift \
+	StructKeyTest.thrift \
 	TypedefFieldTest.thrift \
+	TypedefIncludeTest.thrift \
+	TypedefStructTest.thrift \
 	UnionBinaryTest.thrift \
-	UnionDefaultValueTest.thrift
+	UnionDefaultValueTest.thrift \
+	ValidateTest.thrift

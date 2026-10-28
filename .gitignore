@@ -44,11 +44,14 @@ cmake-*
 dub.selections.json
 libapache-thrift.a
 node_modules
+opsx-*.md
 compile
 test-driver
 erl_crash.dump
 project.lock.json
+SKILL.md
 
+.Dockerfile.sha512
 .sonar
 .DS_Store
 .svn
@@ -56,10 +59,14 @@ project.lock.json
 .vscode
 .vs
 
+/.claude
+/.ai
 /aclocal/libtool.m4
 /aclocal/lt*.m4
 /autoscan.log
 /autoscan-*.log
+/build/windows/dotnet-tool/bin
+/build/windows/dotnet-tool/obj
 /cmake_*
 /compiler/cpp/compiler.VC.db
 /compiler/cpp/compiler.VC.VC.opendb
@@ -74,6 +81,8 @@ project.lock.json
 /compiler/cpp/src/thrift/plugin/gen.stamp
 /compiler/cpp/Debug
 /compiler/cpp/Release
+/compiler/cpp/compiler/Debug
+/compiler/cpp/compiler/Release
 /compiler/cpp/src/thrift/libparse.a
 /compiler/cpp/src/thrift/thriftl.cc
 /compiler/cpp/src/thrift/thrifty.cc
@@ -201,13 +210,13 @@ project.lock.json
 /lib/delphi/*.local
 /lib/delphi/*.identcache
 /lib/delphi/test/skip/bin
-/lib/delphi/test/serializer/*.dat
+/lib/delphi/test/serializer/**/*.dat
+/lib/delphi/test/serializer/bin
+/lib/delphi/test/thrift-testing/*.thrift
 /lib/delphi/**/*.identcache
 /lib/delphi/**/*.local
 /lib/delphi/**/*.dcu
 /lib/delphi/**/*.2007
-/lib/delphi/**/codegen/*.bat
-/lib/erl/_build/
 /lib/erl/.eunit
 /lib/erl/.generated
 /lib/erl/.rebar/
@@ -222,6 +231,9 @@ project.lock.json
 /lib/haxe/test/data.tmp
 /lib/hs/dist
 /lib/java/.gradle
+/lib/java/gradle/wrapper
+/lib/java/gradlew
+/lib/java/gradlew.bat
 /lib/java/android/.gradle
 /lib/java/build
 /lib/java/out
@@ -229,6 +241,14 @@ project.lock.json
 /lib/js/dist
 /lib/js/doc
 /lib/js/test/build
+/lib/kotlin/cross-test-client/build/
+/lib/kotlin/cross-test-server/build/
+/lib/kotlin/build/
+/lib/kotlin/.gradle/
+/lib/kotlin/gradle/
+/lib/kotlin/gradlew
+/lib/kotlin/gradlew.bat
+/lib/lua/test/test_socket_send
 /lib/netstd/**/bin
 /lib/netstd/**/obj
 /lib/nodejs/coverage
@@ -241,14 +261,13 @@ project.lock.json
 /lib/perl/pm_to_blib
 /lib/py/build
 /lib/py/thrift.egg-info/
-/lib/rb/Gemfile.lock
 /lib/rb/debug_proto_test
 /lib/rb/.config
 /lib/rb/ext/conftest.dSYM/
 /lib/rb/ext/mkmf.log
 /lib/rb/ext/thrift_native.bundle
 /lib/rb/ext/thrift_native.so
-/lib/rb/test/
+/lib/rb/test/debug_proto/
 /lib/rb/thrift-*.gem
 /lib/php/src/ext/thrift_protocol/Makefile.*
 /lib/php/src/ext/thrift_protocol/build/
@@ -267,16 +286,15 @@ project.lock.json
 /lib/php/src/ext/thrift_protocol/run-tests.php
 /lib/php/src/ext/thrift_protocol/thrift_protocol.la
 /lib/php/src/ext/thrift_protocol/tmp-php.ini
-/lib/php/src/packages/
-/lib/php/test/TEST-*.xml
-/lib/php/test/packages/
+/lib/php/test/Resources/packages/
+/lib/php/test/test-log-junit.xml
 /lib/py/dist/
 /lib/erl/logs/
 /lib/go/pkg
 /lib/go/src
 /lib/go/test/fuzz/gopathfuzz
+/lib/go/test/build/
 /lib/go/test/gopath/
-/lib/go/test/ThriftTest.thrift
 /lib/nodets/test-compiled/
 /lib/ocaml/_build/
 /lib/ocaml/_tags
@@ -289,6 +307,7 @@ project.lock.json
 /lib/ocaml/*/*.mldylib
 /lib/ocaml/Makefile
 /lib/ocaml/OCamlMakefile
+/lib/rb/vendor/
 /lib/rs/target/
 /lib/rs/Cargo.lock
 /lib/rs/test/Cargo.lock
@@ -300,6 +319,7 @@ project.lock.json
 /lib/rs/test/src/recursive.rs
 /lib/rs/test/src/ultimate.rs
 /lib/rs/test/src/identifiers.rs
+/lib/rs/test/src/keywords.rs
 /lib/rs/test_recursive/Cargo.lock
 /lib/rs/test_recursive/src/vehicles.rs
 /lib/rs/test_recursive/src/maintenance/maintenance_facility.rs
@@ -313,13 +333,13 @@ project.lock.json
 /lib/rs/test_recursive/bin/
 /lib/rs/*.iml
 /lib/rs/**/*.iml
-/lib/swift/.build
 /lib/ts/test/build/
 /lib/ts/test/gen-*
 /libtool
 /ltmain.sh
 /missing
 /node_modules/
+/openspec
 /vendor/
 /composer.lock
 /stamp-h1
@@ -346,7 +366,6 @@ project.lock.json
 /test/erl/_build/
 /test/erl/rebar.lock
 /test/go/bin/
-/test/go/ThriftTest.thrift
 /test/go/gopath
 /test/go/pkg/
 /test/go/src/code.google.com/
@@ -361,7 +380,7 @@ project.lock.json
 /test/hs/TestServer
 /test/php/php_ext_dir/
 /test/py.twisted/_trial_temp/
-/test/rb/Gemfile.lock
+/test/rb/vendor/
 /test/netstd/**/bin
 /test/netstd/**/obj
 /test/netstd/**/launchSettings.json
@@ -417,6 +436,7 @@ project.lock.json
 /tutorial/haxe/bin
 /tutorial/hs/dist/
 /tutorial/java/build/
+/tutorial/java/.gradle/
 /tutorial/js/build/
 /tutorial/netstd/**/bin
 /tutorial/netstd/**/obj
@@ -433,3 +453,14 @@ project.lock.json
 /tutorial/netstd/Client/Properties/launchSettings.json
 /ylwrap
 
+# Unit test generated artifacts
+
+CMakeCache.txt
+CMakeFiles
+compiler/cpp/tests/*.cmake
+compiler/cpp/tests/Testing/
+compiler/cpp/tests/bin/
+compiler/cpp/tests/*.a
+compiler/cpp/tests/build/
+compiler/cpp/build/
+/lib/php/coverage.xml

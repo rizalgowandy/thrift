@@ -119,6 +119,8 @@ public:
 
   inline uint32_t writeBinary(const std::string& str);
 
+  inline uint32_t writeUUID(const TUuid& uuid);
+
   /**
    * Reading functions
    */
@@ -166,22 +168,24 @@ public:
 
   inline uint32_t readBinary(std::string& str);
 
-  int getMinSerializedSize(TType type);
+  inline uint32_t readUUID(TUuid& uuid);
 
-  void checkReadBytesAvailable(TSet& set)
+  int getMinSerializedSize(TType type) override;
+
+  void checkReadBytesAvailable(TSet& set) override
   {
-      trans_->checkReadBytesAvailable(set.size_ * getMinSerializedSize(set.elemType_));
+      trans_->checkReadBytesAvailable(static_cast<int64_t>(set.size_) * getMinSerializedSize(set.elemType_));
   }
 
-  void checkReadBytesAvailable(TList& list)
+  void checkReadBytesAvailable(TList& list) override
   {
-      trans_->checkReadBytesAvailable(list.size_ * getMinSerializedSize(list.elemType_));
+      trans_->checkReadBytesAvailable(static_cast<int64_t>(list.size_) * getMinSerializedSize(list.elemType_));
   }
 
-  void checkReadBytesAvailable(TMap& map)
+  void checkReadBytesAvailable(TMap& map) override
   {
       int elmSize = getMinSerializedSize(map.keyType_) + getMinSerializedSize(map.valueType_);
-      trans_->checkReadBytesAvailable(map.size_ * elmSize);
+      trans_->checkReadBytesAvailable(static_cast<int64_t>(map.size_) * elmSize);
   }
 
 protected:

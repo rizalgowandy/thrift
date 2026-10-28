@@ -18,18 +18,22 @@
 #
 AUTOMAKE_OPTIONS = subdir-objects serial-tests nostdinc
 
+SUBDIRS = .
+SUBDIRS += fuzz
+
 BUILT_SOURCES = gen-cpp/AnnotationTest_types.h \
                 gen-cpp/DebugProtoTest_types.h \
                 gen-cpp/EnumTest_types.h \
                 gen-cpp/OptionalRequiredTest_types.h \
                 gen-cpp/Recursive_types.h \
                 gen-cpp/ThriftTest_types.h \
+                gen-cpp/Thrift5272_types.h \
                 gen-cpp/TypedefTest_types.h \
                 gen-cpp/ChildService.h \
                 gen-cpp/EmptyService.h \
                 gen-cpp/ParentService.h \
-		gen-cpp/OneWayTest_types.h \
-		gen-cpp/OneWayService.h \
+                gen-cpp/OneWayTest_types.h \
+                gen-cpp/OneWayService.h \
                 gen-cpp/proc_types.h
 
 noinst_LTLIBRARIES = libtestgencpp.la libprocessortest.la
@@ -50,6 +54,8 @@ nodist_libtestgencpp_la_SOURCES = \
 	gen-cpp/ThriftTest_types.h \
 	gen-cpp/ThriftTest_constants.cpp \
 	gen-cpp/ThriftTest_constants.h \
+	gen-cpp/Thrift5272_types.cpp \
+	gen-cpp/Thrift5272_types.h \
 	gen-cpp/TypedefTest_types.cpp \
 	gen-cpp/TypedefTest_types.h \
 	gen-cpp/OneWayService.cpp \
@@ -83,8 +89,11 @@ Benchmark_LDADD = libtestgencpp.la
 
 check_PROGRAMS = \
 	UnitTests \
+	UnitTestsUuid \
+	UnitTestsUuidNoDirective \
 	TFDTransportTest \
 	TPipedTransportTest \
+	TTransportFactoryConfigTest \
 	DebugProtoTest \
 	JSONProtoTest \
 	OptionalRequiredTest \
@@ -94,22 +103,25 @@ check_PROGRAMS = \
 	TransportTest \
 	TInterruptTest \
 	TServerIntegrationTest \
+	TServerExceptionTest \
 	SecurityTest \
 	SecurityFromBufferTest \
 	ZlibTest \
 	TFileTransportTest \
 	link_test \
 	OpenSSLManualInitTest \
+	TSSLSocketMatchNameTest \
 	EnumTest \
 	RenderedDoubleConstantsTest \
-        AnnotationTest
+	AnnotationTest
 
 if AMX_HAVE_LIBEVENT
 noinst_PROGRAMS += \
 	processor_test
 check_PROGRAMS += \
 	TNonblockingServerTest \
-	TNonblockingSSLServerTest
+	TNonblockingSSLServerTest \
+	TEvhttpServerRequestContextTest
 endif
 
 TESTS_ENVIRONMENT= \
@@ -131,9 +143,41 @@ UnitTests_SOURCES = \
 	TServerSocketTest.cpp \
 	TServerTransportTest.cpp \
 	TTransportCheckThrow.h \
-	ThrifttReadCheckTests.cpp
+	ThrifttReadCheckTests.cpp \
+	FrameBoundReadBudgetTest.cpp \
+	TWebSocketServerTest.cpp \
+	THttpBufferBoundTest.cpp \
+	THttpHeaderParseTest.cpp \
+	Thrift5272.cpp \
+	TUuidTest.cpp
 
 UnitTests_LDADD = \
+  libtestgencpp.la \
+  $(top_builddir)/lib/cpp/libthriftz.la \
+  $(BOOST_TEST_LDADD) \
+  $(BOOST_SYSTEM_LDADD) \
+  $(BOOST_THREAD_LDADD) \
+  -lz
+
+UnitTestsUuid_SOURCES = \
+	UnitTestMain.cpp \
+	TUuidTestBoost.cpp
+
+UnitTestsUuid_LDADD = \
+  libtestgencpp.la \
+  $(BOOST_TEST_LDADD) \
+  $(BOOST_SYSTEM_LDADD) \
+  $(BOOST_THREAD_LDADD)
+
+UnitTestsUuid_CPPFLAGS = \
+   $(AM_CPPFLAGS) \
+  -DTHRIFT_TUUID_SUPPORT_BOOST_UUID
+
+UnitTestsUuidNoDirective_SOURCES = \
+	UnitTestMain.cpp \
+	TUuidTestBoostNoDirective.cpp
+
+UnitTestsUuidNoDirective_LDADD = \
   libtestgencpp.la \
   $(BOOST_TEST_LDADD) \
   $(BOOST_SYSTEM_LDADD) \
@@ -155,6 +199,16 @@ TServerIntegrationTest_SOURCES = \
 	TServerIntegrationTest.cpp
 
 TServerIntegrationTest_LDADD = \
+  libtestgencpp.la \
+  libprocessortest.la \
+  $(BOOST_TEST_LDADD) \
+  $(BOOST_SYSTEM_LDADD) \
+  $(BOOST_THREAD_LDADD)
+
+TServerExceptionTest_SOURCES = \
+	TServerExceptionTest.cpp
+
+TServerExceptionTest_LDADD = \
   libtestgencpp.la \
   libprocessortest.la \
   $(BOOST_TEST_LDADD) \
@@ -252,6 +306,17 @@ TPipedTransportTest_LDADD = \
 	$(BOOST_THREAD_LDADD)
 
 #
+# TTransportFactoryConfigTest
+#
+TTransportFactoryConfigTest_SOURCES = \
+	TTransportFactoryConfigTest.cpp
+
+TTransportFactoryConfigTest_LDADD =  \
+	$(top_builddir)/lib/cpp/libthrift.la \
+	$(top_builddir)/lib/cpp/libthriftz.la \
+	$(BOOST_TEST_LDADD)
+
+#
 # AllProtocolsTest
 #
 AllProtocolsTest_SOURCES = \
@@ -309,6 +374,17 @@ TNonblockingSSLServerTest_LDADD = libprocessortest.la \
                                $(BOOST_CHRONO_LDADD) \
                                $(BOOST_SYSTEM_LDADD) \
                                $(BOOST_THREAD_LDADD) \
+                               $(LIBEVENT_LIBS)
+
+#
+# TEvhttpServerRequestContextTest
+#
+TEvhttpServerRequestContextTest_SOURCES = TEvhttpServerRequestContextTest.cpp
+
+TEvhttpServerRequestContextTest_LDADD = $(top_builddir)/lib/cpp/libthrift.la \
+                               $(top_builddir)/lib/cpp/libthriftnb.la \
+                               $(BOOST_TEST_LDADD) \
+                               $(BOOST_LDFLAGS) \
                                $(LIBEVENT_LIBS)
 
 #
@@ -379,8 +455,23 @@ OpenSSLManualInitTest_LDADD = \
 	$(OPENSSL_LDFLAGS) \
 	$(OPENSSL_LIBS)
 
+TSSLSocketMatchNameTest_SOURCES = \
+	TSSLSocketMatchNameTest.cpp
+
+# The test runs its listener on a boost::thread, so it links the boost thread
+# library the same way the other tests that start one do.
+TSSLSocketMatchNameTest_LDADD = \
+	$(top_builddir)/lib/cpp/libthrift.la \
+	$(BOOST_TEST_LDADD) \
+	$(BOOST_SYSTEM_LDADD) \
+	$(BOOST_THREAD_LDADD) \
+	$(OPENSSL_LDFLAGS) \
+	$(OPENSSL_LIBS)
+
 #
 # Common thrift code generation rules
+#
+# files from /test
 #
 
 gen-cpp/AnnotationTest_constants.cpp gen-cpp/AnnotationTest_constants.h gen-cpp/AnnotationTest_types.cpp gen-cpp/AnnotationTest_types.h: $(top_srcdir)/test/AnnotationTest.thrift
@@ -391,7 +482,6 @@ gen-cpp/DebugProtoTest_types.cpp gen-cpp/DebugProtoTest_types.h gen-cpp/EmptySer
 
 gen-cpp/DoubleConstantsTest_constants.cpp gen-cpp/DoubleConstantsTest_constants.h: $(top_srcdir)/test/DoubleConstantsTest.thrift
 	$(THRIFT) --gen cpp $<
-
 
 gen-cpp/EnumTest_types.cpp gen-cpp/EnumTest_types.h: $(top_srcdir)/test/EnumTest.thrift
 	$(THRIFT) --gen cpp $<
@@ -411,18 +501,28 @@ gen-cpp/Service.cpp gen-cpp/StressTest_types.cpp: $(top_srcdir)/test/StressTest.
 gen-cpp/SecondService.cpp gen-cpp/ThriftTest_constants.cpp gen-cpp/ThriftTest.cpp gen-cpp/ThriftTest_types.cpp gen-cpp/ThriftTest_types.h: $(top_srcdir)/test/ThriftTest.thrift
 	$(THRIFT) --gen cpp $<
 
+# files from /lib/cpp/test
+
 gen-cpp/OneWayService.cpp gen-cpp/OneWayTest_types.h gen-cpp/OneWayService.h: OneWayTest.thrift
+	$(THRIFT) --gen cpp $<
+
+gen-cpp/Thrift5272_types.cpp gen-cpp/Thrift5272_types.h: Thrift5272.thrift
 	$(THRIFT) --gen cpp $<
 
 gen-cpp/ChildService.cpp gen-cpp/ChildService.h gen-cpp/ParentService.cpp gen-cpp/ParentService.h gen-cpp/proc_types.cpp gen-cpp/proc_types.h: processor/proc.thrift
 	$(THRIFT) --gen cpp:templates,cob_style $<
 
-AM_CPPFLAGS = $(BOOST_CPPFLAGS) -I$(top_srcdir)/lib/cpp/src -I$(top_srcdir)/lib/cpp/src/thrift -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I.
-AM_LDFLAGS = $(BOOST_LDFLAGS)
+AM_CPPFLAGS = $(BOOST_CPPFLAGS) $(OPENSSL_INCLUDES) $(LIBEVENT_CPPFLAGS) -I$(top_srcdir)/lib/cpp/src -I$(top_srcdir)/lib/cpp/src/thrift -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -I.
+# The tests here always link libthriftz
+AM_CPPFLAGS += -DTHRIFT_TEST_WITH_ZLIB
+AM_LDFLAGS = $(BOOST_LDFLAGS) $(LIBEVENT_LDFLAGS)
 AM_CXXFLAGS = -Wall -Wextra -pedantic
 
 clean-local:
 	$(RM) gen-cpp/*
+
+distdir:
+	$(MAKE) $(AM_MAKEFLAGS) distdir-am
 
 EXTRA_DIST = \
 	concurrency \
@@ -431,4 +531,6 @@ EXTRA_DIST = \
 	CMakeLists.txt \
 	DebugProtoTest_extras.cpp \
 	ThriftTest_extras.cpp \
-	OneWayTest.thrift
+	OneWayTest.thrift \
+	Thrift5272.thrift
+

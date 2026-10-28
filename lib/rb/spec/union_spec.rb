@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements. See the NOTICE file
@@ -17,15 +18,72 @@
 # under the License.
 #
 
-require 'spec_helper'
+require "spec_helper"
+require "thrift_spec_constants"
 
-describe 'Union' do
-
+describe "Union" do
   describe Thrift::Union do
     it "should return nil value in unset union" do
       union = SpecNamespace::My_union.new
       expect(union.get_set_field).to eq(nil)
       expect(union.get_value).to eq(nil)
+    end
+
+    it "should preserve legacy behavior for a false selector" do
+      union = SpecNamespace::My_union.new(false)
+      expect(union.get_set_field).to be false
+      expect(union.get_value).to be_nil
+    end
+
+    [true, false].each do |type_checking|
+      context "with type checking #{type_checking}" do
+        before { Thrift.type_checking = type_checking }
+
+        {
+          "a String selector and value" => ["integer32", 25],
+          "a Hash with a String key" => [{"integer32" => 25}],
+        }.each do |form, arguments|
+          it "should normalize String field names supplied as #{form}" do
+            union = SpecNamespace::My_union.new(*arguments)
+            other_union = SpecNamespace::My_union.new(integer32: 25)
+
+            expect(union.get_set_field).to eq(:integer32)
+            expect(union.integer32).to eq(25)
+            expect(union.integer32?).to be true
+            expect(union.some_characters?).to be false
+            expect(union).to eq(other_union)
+            expect(union.hash).to eq(other_union.hash)
+            expect(union <=> other_union).to eq(0)
+          end
+        end
+      end
+    end
+
+    {
+      "constant" => -> { SpecNamespace::UNION_CONSTANT },
+      "field default" => -> { SpecNamespace::StructWithUnionDefault.new.union_field },
+    }.each do |source, build_union|
+      it "should expose the selected field of a generated union #{source}" do
+        union = build_union.call
+        expect(union.get_set_field).to eq(:string_field)
+        expect(union.string_field).to eq("default union value")
+        expect(union.string_field?).to be true
+        expect(union).to eq(SpecNamespace::TestUnion.new(string_field: "default union value"))
+      end
+
+      [Thrift::BinaryProtocol, Thrift::CompactProtocol, Thrift::JsonProtocol].each do |protocol_class|
+        it "should preserve a generated union #{source} through #{protocol_class}" do
+          union = build_union.call
+          protocol = protocol_class.new(Thrift::MemoryBufferTransport.new)
+          union.write(protocol)
+          result = SpecNamespace::TestUnion.new
+          result.read(protocol)
+
+          expect(result.string_field).to eq("default union value")
+          expect(result).to eq(union)
+          expect(result.hash).to eq(union.hash)
+        end
+      end
     end
 
     it "should set a field and be accessible through get_value and the named field accessor" do
@@ -51,7 +109,9 @@ describe 'Union' do
     it "should raise for wrong set field when hash initialized and type checking is off" do
       Thrift.type_checking = false
       union = SpecNamespace::My_union.new({incorrect_field: :incorrect})
-      expect { Thrift::Serializer.new.serialize(union) }.to raise_error(RuntimeError, "set_field is not valid for this union!")
+      expect { Thrift::Serializer.new.serialize(union) }.to raise_error(Thrift::ProtocolException, "set_field is not valid for this union!") { |error|
+        expect(error.type).to eq(Thrift::ProtocolException::INVALID_DATA)
+      }
     end
 
     it "should not be equal to nil" do
@@ -61,7 +121,7 @@ describe 'Union' do
 
     it "should not be equal with an empty String" do
       union = SpecNamespace::My_union.new
-      expect(union).not_to eq('')
+      expect(union).not_to eq("")
     end
 
     it "should not equate two different unions, i32 vs. string" do
@@ -88,6 +148,24 @@ describe 'Union' do
     it "should not equate two different unions with different fields" do
       union = SpecNamespace::My_union.new(:integer32, 25)
       other_union = SpecNamespace::My_union.new(:other_i32, 25)
+      expect(union).not_to eq(other_union)
+    end
+
+    it "should equate two unions with the same UUID value" do
+      union = SpecNamespace::My_union.new(:unique_id, "550e8400-e29b-41d4-a716-446655440000")
+      other_union = SpecNamespace::My_union.new(:unique_id, "550e8400-e29b-41d4-a716-446655440000")
+      expect(union).to eq(other_union)
+    end
+
+    it "should not equate two unions with different UUID values" do
+      union = SpecNamespace::My_union.new(:unique_id, "550e8400-e29b-41d4-a716-446655440000")
+      other_union = SpecNamespace::My_union.new(:unique_id, "6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+      expect(union).not_to eq(other_union)
+    end
+
+    it "should not equate UUID union with different field type" do
+      union = SpecNamespace::My_union.new(:unique_id, "550e8400-e29b-41d4-a716-446655440000")
+      other_union = SpecNamespace::My_union.new(:some_characters, "550e8400-e29b-41d4-a716-446655440000")
       expect(union).not_to eq(other_union)
     end
 
@@ -130,7 +208,9 @@ describe 'Union' do
 
     it "should raise when validating unset union" do
       union = SpecNamespace::My_union.new
-      expect { union.validate }.to raise_error(StandardError, "Union fields are not set.")
+      expect { union.validate }.to raise_error(Thrift::ProtocolException, "Union fields are not set.") { |error|
+        expect(error.type).to eq(Thrift::ProtocolException::INVALID_DATA)
+      }
 
       other_union = SpecNamespace::My_union.new(:integer32, 1)
       expect { other_union.validate }.not_to raise_error
@@ -139,7 +219,9 @@ describe 'Union' do
     it "should validate an enum field properly" do
       union = SpecNamespace::TestUnion.new(:enum_field, 3)
       expect(union.get_set_field).to eq(:enum_field)
-      expect { union.validate }.to raise_error(Thrift::ProtocolException, "Invalid value of field enum_field!")
+      expect { union.validate }.to raise_error(Thrift::ProtocolException, "Invalid value of field enum_field!") { |error|
+        expect(error.type).to eq(Thrift::ProtocolException::INVALID_DATA)
+      }
 
       other_union = SpecNamespace::TestUnion.new(:enum_field, 1)
       expect { other_union.validate }.not_to raise_error
@@ -147,7 +229,7 @@ describe 'Union' do
 
     it "should properly serialize and match structs with a union" do
       union = SpecNamespace::My_union.new(:integer32, 26)
-      swu = SpecNamespace::Struct_with_union.new(:fun_union => union)
+      swu = SpecNamespace::Struct_with_union.new(fun_union: union)
 
       trans = Thrift::MemoryBufferTransport.new
       proto = Thrift::CompactProtocol.new(trans)
@@ -155,7 +237,7 @@ describe 'Union' do
       swu.write(proto)
 
       other_union = SpecNamespace::My_union.new(:some_characters, "hello there")
-      swu2 = SpecNamespace::Struct_with_union.new(:fun_union => other_union)
+      swu2 = SpecNamespace::Struct_with_union.new(fun_union: other_union)
 
       expect(swu2).not_to eq(swu)
 
@@ -164,51 +246,88 @@ describe 'Union' do
     end
 
     it "should support old style constructor" do
-      union = SpecNamespace::My_union.new(:integer32 => 26)
+      union = SpecNamespace::My_union.new(integer32: 26)
       expect(union.get_set_field).to eq(:integer32)
       expect(union.get_value).to eq(26)
     end
 
     it "should not throw an error when inspected and unset" do
-      expect{SpecNamespace::TestUnion.new().inspect}.not_to raise_error
+      expect { SpecNamespace::TestUnion.new.inspect }.not_to raise_error
     end
 
     it "should print enum value name when inspected" do
-      expect(SpecNamespace::My_union.new(:some_enum => SpecNamespace::SomeEnum::ONE).inspect).to eq("<SpecNamespace::My_union some_enum: ONE (0)>")
+      expect(SpecNamespace::My_union.new(some_enum: SpecNamespace::SomeEnum::ONE).inspect).to eq("<SpecNamespace::My_union some_enum: ONE (0)>")
 
-      expect(SpecNamespace::My_union.new(:my_map => {SpecNamespace::SomeEnum::ONE => [SpecNamespace::SomeEnum::TWO]}).inspect).to eq("<SpecNamespace::My_union my_map: {ONE (0): [TWO (1)]}>")
+      expect(SpecNamespace::My_union.new(my_map: {SpecNamespace::SomeEnum::ONE => [SpecNamespace::SomeEnum::TWO]}).inspect).to eq("<SpecNamespace::My_union my_map: {ONE (0): [TWO (1)]}>")
     end
 
     it "should offer field? methods" do
       expect(SpecNamespace::My_union.new.some_enum?).to be_falsey
-      expect(SpecNamespace::My_union.new(:some_enum => SpecNamespace::SomeEnum::ONE).some_enum?).to be_truthy
-      expect(SpecNamespace::My_union.new(:im_true => false).im_true?).to be_truthy
-      expect(SpecNamespace::My_union.new(:im_true => true).im_true?).to be_truthy
+      expect(SpecNamespace::My_union.new(some_enum: SpecNamespace::SomeEnum::ONE).some_enum?).to be_truthy
+      expect(SpecNamespace::My_union.new(im_true: false).im_true?).to be_truthy
+      expect(SpecNamespace::My_union.new(im_true: true).im_true?).to be_truthy
     end
 
     it "should pretty print binary fields" do
-      expect(SpecNamespace::TestUnion.new(:binary_field => "\001\002\003").inspect).to eq("<SpecNamespace::TestUnion binary_field: 010203>")
+      expect(SpecNamespace::TestUnion.new(binary_field: "\001\002\003").inspect).to eq("<SpecNamespace::TestUnion binary_field: 010203>")
     end
 
     it "should be comparable" do
       relationships = [
-        [0,   -1, -1, -1],
-        [1,   0,  -1, -1],
-        [1,   1,  0,  -1],
-        [1,   1,  1,  0]]
+        [0,   -1, -1, -1, -1, -1],
+        [1,   0,  -1, -1, -1, -1],
+        [1,   1,  0,  -1, -1, -1],
+        [1,   1,  1,  0,  -1, -1],
+        [1,   1,  1,  1,  0,  -1],
+        [1,   1,  1,  1,  1,  0],
+      ]
 
       objs = [
         SpecNamespace::TestUnion.new(:string_field, "blah"),
         SpecNamespace::TestUnion.new(:string_field, "blahblah"),
         SpecNamespace::TestUnion.new(:i32_field, 1),
-        SpecNamespace::TestUnion.new()]
+        SpecNamespace::TestUnion.new(:uuid_field, "550e8400-e29b-41d4-a716-446655440000"),
+        SpecNamespace::TestUnion.new(:uuid_field, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"),
+        SpecNamespace::TestUnion.new,
+      ]
 
-      for y in 0..3
-        for x in 0..3
+      objs.size.times do |y|
+        objs.size.times do |x|
           # puts "#{objs[y].inspect} <=> #{objs[x].inspect} should == #{relationships[y][x]}"
           expect(objs[y] <=> objs[x]).to eq(relationships[y][x])
         end
       end
+    end
+
+    it "should handle UUID as union value" do
+      union = SpecNamespace::My_union.new
+      union.unique_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+      trans = Thrift::MemoryBufferTransport.new
+      prot = Thrift::CompactProtocol.new(trans)
+
+      union.write(prot)
+
+      result = SpecNamespace::My_union.new
+      result.read(prot)
+
+      expect(result.unique_id).to eq("ffffffff-ffff-ffff-ffff-ffffffffffff")
+      expect(result.get_set_field).to eq(:unique_id)
+    end
+
+    it "should normalize UUID case in union" do
+      union = SpecNamespace::My_union.new
+      union.unique_id = "550E8400-E29B-41D4-A716-446655440000"
+
+      trans = Thrift::MemoryBufferTransport.new
+      prot = Thrift::BinaryProtocol.new(trans)
+
+      union.write(prot)
+
+      result = SpecNamespace::My_union.new
+      result.read(prot)
+
+      expect(result.unique_id).to eq("550e8400-e29b-41d4-a716-446655440000")
     end
   end
 end

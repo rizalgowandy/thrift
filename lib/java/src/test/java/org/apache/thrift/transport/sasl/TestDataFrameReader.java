@@ -19,12 +19,16 @@
 
 package org.apache.thrift.transport.sasl;
 
-import org.apache.thrift.transport.TMemoryInputTransport;
-import org.apache.thrift.transport.TTransportException;
-import org.junit.Assert;
-import org.junit.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.ByteBuffer;
+import org.apache.thrift.TConfiguration;
+import org.apache.thrift.transport.TMemoryInputTransport;
+import org.apache.thrift.transport.TTransportException;
+import org.junit.jupiter.api.Test;
 
 public class TestDataFrameReader {
 
@@ -32,7 +36,8 @@ public class TestDataFrameReader {
   public void testRead() throws TTransportException {
     // Prepare data
     int payloadSize = 23;
-    ByteBuffer buffer = ByteBuffer.allocate(DataFrameHeaderReader.PAYLOAD_LENGTH_BYTES + payloadSize);
+    ByteBuffer buffer =
+        ByteBuffer.allocate(DataFrameHeaderReader.PAYLOAD_LENGTH_BYTES + payloadSize);
     buffer.putInt(payloadSize);
     for (int i = 0; i < payloadSize; i++) {
       buffer.put((byte) i);
@@ -43,19 +48,40 @@ public class TestDataFrameReader {
     DataFrameReader dataFrameReader = new DataFrameReader();
     // No bytes received.
     dataFrameReader.read(transport);
-    Assert.assertFalse("No bytes received", dataFrameReader.isComplete());
-    Assert.assertFalse("No bytes received", dataFrameReader.getHeader().isComplete());
+    assertFalse(dataFrameReader.isComplete(), "No bytes received");
+    assertFalse(dataFrameReader.getHeader().isComplete(), "No bytes received");
     // Payload size (header) and part of the payload are received.
     transport.reset(buffer.array(), 0, 6);
     dataFrameReader.read(transport);
-    Assert.assertFalse("Only header is complete", dataFrameReader.isComplete());
-    Assert.assertTrue("Header should be complete", dataFrameReader.getHeader().isComplete());
-    Assert.assertEquals("Payload size should be " + payloadSize, payloadSize, dataFrameReader.getHeader().payloadSize());
+    assertFalse(dataFrameReader.isComplete(), "Only header is complete");
+    assertTrue(dataFrameReader.getHeader().isComplete(), "Header should be complete");
+    assertEquals(
+        payloadSize,
+        dataFrameReader.getHeader().payloadSize(),
+        "Payload size should be " + payloadSize);
     // Read the rest of payload.
     transport.reset(buffer.array(), 6, 21);
     dataFrameReader.read(transport);
-    Assert.assertTrue("Reader should be complete", dataFrameReader.isComplete());
+    assertTrue(dataFrameReader.isComplete(), "Reader should be complete");
     buffer.position(DataFrameHeaderReader.PAYLOAD_LENGTH_BYTES);
-    Assert.assertEquals("Payload should be the same as from the transport", buffer, ByteBuffer.wrap(dataFrameReader.getPayload()));
+    assertEquals(
+        buffer,
+        ByteBuffer.wrap(dataFrameReader.getPayload()),
+        "Payload should be the same as from the transport");
+  }
+
+  @Test
+  public void testReadPayloadSizeExceedingMaxFrameSize() throws TTransportException {
+    // A data frame header declaring a payload larger than the configured max frame size must be
+    // rejected before the payload buffer is allocated, so read() throws rather than allocating a
+    // buffer of the declared size.
+    int maxFrameSize = 1024;
+    TConfiguration config = new TConfiguration();
+    config.setMaxFrameSize(maxFrameSize);
+    ByteBuffer buffer = ByteBuffer.allocate(DataFrameHeaderReader.PAYLOAD_LENGTH_BYTES);
+    buffer.putInt(maxFrameSize + 1);
+    TMemoryInputTransport transport = new TMemoryInputTransport(config, buffer.array());
+    DataFrameReader dataFrameReader = new DataFrameReader();
+    assertThrows(TInvalidSaslFrameException.class, () -> dataFrameReader.read(transport));
   }
 }

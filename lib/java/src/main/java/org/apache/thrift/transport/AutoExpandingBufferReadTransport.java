@@ -20,9 +20,7 @@ package org.apache.thrift.transport;
 
 import org.apache.thrift.TConfiguration;
 
-/**
- * TTransport for reading from an AutoExpandingBuffer.
- */
+/** TTransport for reading from an AutoExpandingBuffer. */
 public class AutoExpandingBufferReadTransport extends TEndpointTransport {
 
   private final AutoExpandingBuffer buf;
@@ -30,7 +28,8 @@ public class AutoExpandingBufferReadTransport extends TEndpointTransport {
   private int pos = 0;
   private int limit = 0;
 
-  public AutoExpandingBufferReadTransport(TConfiguration config, int initialCapacity) throws TTransportException {
+  public AutoExpandingBufferReadTransport(TConfiguration config, int initialCapacity)
+      throws TTransportException {
     super(config);
     this.buf = new AutoExpandingBuffer(initialCapacity);
   }
@@ -40,13 +39,16 @@ public class AutoExpandingBufferReadTransport extends TEndpointTransport {
     inTrans.readAll(buf.array(), 0, length);
     pos = 0;
     limit = length;
+    resetConsumedMessageSize(-1);
   }
 
   @Override
   public void close() {}
 
   @Override
-  public boolean isOpen() { return true; }
+  public boolean isOpen() {
+    return true;
+  }
 
   @Override
   public void open() throws TTransportException {}
@@ -54,7 +56,7 @@ public class AutoExpandingBufferReadTransport extends TEndpointTransport {
   @Override
   public final int read(byte[] target, int off, int len) throws TTransportException {
     int amtToRead = Math.min(len, getBytesRemainingInBuffer());
-    if(amtToRead > 0){
+    if (amtToRead > 0) {
       System.arraycopy(buf.array(), pos, target, off, amtToRead);
       consumeBuffer(amtToRead);
     }
@@ -69,6 +71,11 @@ public class AutoExpandingBufferReadTransport extends TEndpointTransport {
   @Override
   public final void consumeBuffer(int len) {
     pos += len;
+    if (remainingMessageSize >= len) {
+      remainingMessageSize -= len;
+    } else {
+      remainingMessageSize = 0;
+    }
   }
 
   @Override

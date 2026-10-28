@@ -19,6 +19,7 @@
 
 package org.apache.thrift.transport.layered;
 
+import java.util.Objects;
 import org.apache.thrift.TByteArrayOutputStream;
 import org.apache.thrift.TConfiguration;
 import org.apache.thrift.transport.TMemoryInputTransport;
@@ -26,30 +27,24 @@ import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 import org.apache.thrift.transport.TTransportFactory;
 
-import java.util.Objects;
-
 /**
- * TFramedTransport is a buffered TTransport that ensures a fully read message
- * every time by preceding messages with a 4-byte frame size.
+ * TFramedTransport is a buffered TTransport that ensures a fully read message every time by
+ * preceding messages with a 4-byte frame size.
  */
 public class TFramedTransport extends TLayeredTransport {
 
-  /**
-   * Buffer for output
-   */
-  private final TByteArrayOutputStream writeBuffer_ =
-    new TByteArrayOutputStream(1024);
+  /** Buffer for output */
+  private final TByteArrayOutputStream writeBuffer_ = new TByteArrayOutputStream(1024);
 
-  /**
-   * Buffer for input
-   */
+  /** Buffer for input */
   private final TMemoryInputTransport readBuffer_;
 
   public static class Factory extends TTransportFactory {
-    private int maxLength_;
+    /** Null when no maximum was asked for, which leaves each transport's own alone. */
+    private final Integer maxLength_;
 
     public Factory() {
-      maxLength_ = TConfiguration.DEFAULT_MAX_FRAME_SIZE;
+      maxLength_ = null;
     }
 
     public Factory(int maxLength) {
@@ -58,30 +53,36 @@ public class TFramedTransport extends TLayeredTransport {
 
     @Override
     public TTransport getTransport(TTransport base) throws TTransportException {
-      return new TFramedTransport(base, maxLength_);
+      return Objects.isNull(maxLength_)
+          ? new TFramedTransport(base)
+          : new TFramedTransport(base, maxLength_);
     }
   }
 
   /**
-   * Something to fill in the first four bytes of the buffer
-   * to make room for the frame size.  This allows the
-   * implementation to write once instead of twice.
+   * Something to fill in the first four bytes of the buffer to make room for the frame size. This
+   * allows the implementation to write once instead of twice.
    */
-  private static final byte[] sizeFiller_ = new byte[] { 0x00, 0x00, 0x00, 0x00 };
+  private static final byte[] sizeFiller_ = new byte[] {0x00, 0x00, 0x00, 0x00};
 
-  /**
-   * Constructor wraps around another transport
-   */
+  /** Constructor wraps around another transport */
   public TFramedTransport(TTransport transport, int maxLength) throws TTransportException {
     super(transport);
-    TConfiguration _configuration = Objects.isNull(transport.getConfiguration()) ? new TConfiguration() : transport.getConfiguration();
+    TConfiguration _configuration =
+        Objects.isNull(transport.getConfiguration())
+            ? new TConfiguration()
+            : transport.getConfiguration();
     _configuration.setMaxFrameSize(maxLength);
     writeBuffer_.write(sizeFiller_, 0, 4);
-    readBuffer_= new TMemoryInputTransport(_configuration, new byte[0]);
+    readBuffer_ = new TMemoryInputTransport(_configuration, new byte[0]);
   }
 
   public TFramedTransport(TTransport transport) throws TTransportException {
-    this(transport, TConfiguration.DEFAULT_MAX_FRAME_SIZE);
+    // No maximum was asked for, so keep the one the transport already carries.
+    // Passing the library default here would silently raise a limit its owner
+    // had lowered -- and, because the configuration object belongs to the
+    // transport underneath, would do so for everything else sharing it.
+    this(transport, configuredMaxFrameSize(transport));
   }
 
   public void open() throws TTransportException {
@@ -135,23 +136,45 @@ public class TFramedTransport extends TLayeredTransport {
   private final byte[] i32buf = new byte[4];
 
   private void readFrame() throws TTransportException {
+    // Hand the framing reads below a full budget. Whatever is left of the previous frame's bound
+    // describes a frame we are done with, and an inner transport that decrements on read -- a
+    // TMemoryBuffer, or the TMemoryInputTransport the nonblocking server uses -- would otherwise
+    // refuse to let us read a frame larger than the last one.
+    resetMessageSizeAndConsumedBytes();
+
     getInnerTransport().readAll(i32buf, 0, 4);
     int size = decodeFrameSize(i32buf);
 
     if (size < 0) {
       close();
-      throw new TTransportException(TTransportException.CORRUPTED_DATA, "Read a negative frame size (" + size + ")!");
+      throw new TTransportException(
+          TTransportException.CORRUPTED_DATA, "Read a negative frame size (" + size + ")!");
     }
 
     if (size > getInnerTransport().getConfiguration().getMaxFrameSize()) {
       close();
-      throw new TTransportException(TTransportException.CORRUPTED_DATA,
-          "Frame size (" + size + ") larger than max length (" + getInnerTransport().getConfiguration().getMaxFrameSize() + ")!");
+      throw new TTransportException(
+          TTransportException.CORRUPTED_DATA,
+          "Frame size ("
+              + size
+              + ") larger than max length ("
+              + getInnerTransport().getConfiguration().getMaxFrameSize()
+              + ")!");
     }
 
     byte[] buff = new byte[size];
     getInnerTransport().readAll(buff, 0, size);
     readBuffer_.reset(buff);
+
+    // Bind the read budget to this frame, so that the protocol cannot be talked into sizing a
+    // field or a container from a number the frame is too small to carry.
+    //
+    // This has to discard consumption rather than accumulate it, which is why it is not
+    // updateKnownMessageSize(): getting the frame off the wire was itself charged to the inner
+    // transport whenever that one decrements, and charging it again against the frame's own bound
+    // would leave the frame unreadable. Everything the protocol reads from here on comes out of
+    // readBuffer_, so what is bound here stands for the whole frame.
+    resetMessageSizeAndConsumedBytes(size);
   }
 
   public void write(byte[] buf, int off, int len) throws TTransportException {
@@ -161,27 +184,26 @@ public class TFramedTransport extends TLayeredTransport {
   @Override
   public void flush() throws TTransportException {
     byte[] buf = writeBuffer_.get();
-    int len = writeBuffer_.len() - 4;       // account for the prepended frame size
+    int len = writeBuffer_.len() - 4; // account for the prepended frame size
     writeBuffer_.reset();
-    writeBuffer_.write(sizeFiller_, 0, 4);  // make room for the next frame's size data
+    writeBuffer_.write(sizeFiller_, 0, 4); // make room for the next frame's size data
 
-    encodeFrameSize(len, buf);              // this is the frame length without the filler
-    getInnerTransport().write(buf, 0, len + 4);      // we have to write the frame size and frame data
+    encodeFrameSize(len, buf); // this is the frame length without the filler
+    getInnerTransport().write(buf, 0, len + 4); // we have to write the frame size and frame data
     getInnerTransport().flush();
   }
 
-  public static final void encodeFrameSize(final int frameSize, final byte[] buf) {
-    buf[0] = (byte)(0xff & (frameSize >> 24));
-    buf[1] = (byte)(0xff & (frameSize >> 16));
-    buf[2] = (byte)(0xff & (frameSize >> 8));
-    buf[3] = (byte)(0xff & (frameSize));
+  public static void encodeFrameSize(final int frameSize, final byte[] buf) {
+    buf[0] = (byte) (0xff & (frameSize >> 24));
+    buf[1] = (byte) (0xff & (frameSize >> 16));
+    buf[2] = (byte) (0xff & (frameSize >> 8));
+    buf[3] = (byte) (0xff & (frameSize));
   }
 
-  public static final int decodeFrameSize(final byte[] buf) {
-    return
-      ((buf[0] & 0xff) << 24) |
-      ((buf[1] & 0xff) << 16) |
-      ((buf[2] & 0xff) <<  8) |
-      ((buf[3] & 0xff));
+  public static int decodeFrameSize(final byte[] buf) {
+    return ((buf[0] & 0xff) << 24)
+        | ((buf[1] & 0xff) << 16)
+        | ((buf[2] & 0xff) << 8)
+        | ((buf[3] & 0xff));
   }
 }

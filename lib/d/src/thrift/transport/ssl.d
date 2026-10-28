@@ -30,6 +30,7 @@ import core.stdc.config;
 import core.stdc.stdlib : free, malloc;
 import std.ascii : toUpper;
 import std.array : empty, front, popFront;
+import std.bitmanip : nativeToBigEndian;
 import std.conv : emplace, to;
 import std.exception : enforce;
 import std.socket : Address, InternetAddress, Internet6Address, Socket;
@@ -42,6 +43,11 @@ import thrift.base;
 import thrift.internal.ssl;
 import thrift.transport.base;
 import thrift.transport.socket;
+
+// The control codes SSL_CTX_set_min_proto_version/SSL_CTX_get_min_proto_version
+// expand to; the deimos bindings declare neither the macros nor the codes.
+private enum SSL_CTRL_SET_MIN_PROTO_VERSION = 123;
+private enum SSL_CTRL_GET_MIN_PROTO_VERSION = 130;
 
 /**
  * SSL encrypted socket implementation using OpenSSL.
@@ -222,7 +228,7 @@ private:
     }
     enforce(rc > 0, getSSLException());
     authorize(ssl_, accessManager_, getPeerAddress(),
-      (serverSide_ ? getPeerAddress().toHostNameString() : host));
+      (serverSide_ ? getPeerAddress().toHostNameString() : host), serverSide_);
   }
 
   bool serverSide_;
@@ -256,6 +262,17 @@ class TSSLContext {
         SSL_CTX_set_options(ctx_, SSL_OP_NO_SSLv2);
     }
     SSL_CTX_set_options(ctx_, SSL_OP_NO_SSLv3);   // THRIFT-3164
+    // Floor the negotiation at TLS 1.2, matching the modern default the other
+    // bindings follow. SSL_CTX_set_min_proto_version is a header macro rather
+    // than an exported symbol, so invoke the control code it stands for; on
+    // OpenSSL 1.0.x, which has no such control, decline the older versions by
+    // option instead.
+    static if (OPENSSL_VERSION_NUMBER >= 0x1010000f) {
+        SSL_CTX_ctrl(ctx_, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, null);
+    } else {
+        SSL_CTX_set_options(ctx_, SSL_OP_NO_TLSv1);
+        SSL_CTX_set_options(ctx_, SSL_OP_NO_TLSv1_1);
+    }
     enforce(ctx_, getSSLException("SSL_CTX_new"));
     SSL_CTX_set_mode(ctx_, SSL_MODE_AUTO_RETRY);
   }
@@ -550,6 +567,17 @@ private:
   static __gshared uint count_;
 }
 
+unittest {
+  // The default context floors the negotiation at TLS 1.2, so its minimum
+  // version matches the modern default the other bindings use.
+  static if (OPENSSL_VERSION_NUMBER >= 0x1010000f) {
+    auto context = new TSSLContext();
+    auto minVersion = SSL_CTX_ctrl(
+      context.ctx_, SSL_CTRL_GET_MIN_PROTO_VERSION, 0, null);
+    assert(minVersion == TLS1_2_VERSION, "the default context floor is not TLS 1.2");
+  }
+}
+
 /**
  * Decides whether a remote host is legitimate or not.
  *
@@ -629,7 +657,9 @@ class TDefaultClientAccessManager : TAccessManager {
     bool match;
     if (certAddress.length == 4) {
       if (auto ia = cast(InternetAddress)address) {
-        match = ((cast(ubyte*)ia.addr())[0 .. 4] == certAddress[]);
+        // addr() is the address as a number in host byte order; the entry
+        // carries it in network byte order.
+        match = (nativeToBigEndian(ia.addr())[] == certAddress[]);
       }
     } else if (certAddress.length == 16) {
       if (auto ia = cast(Internet6Address)address) {
@@ -638,6 +668,30 @@ class TDefaultClientAccessManager : TAccessManager {
     }
     return (match ? Decision.ALLOW : Decision.SKIP);
   }
+}
+
+// An IP subjectAltName entry carries the address in network byte order, and
+// TDefaultClientAccessManager compares it with the peer address byte for byte.
+unittest {
+  alias Decision = TAccessManager.Decision;
+  auto manager = new TDefaultClientAccessManager;
+
+  Address v4 = new InternetAddress("10.1.2.3", 9090);
+  Address v6 = new Internet6Address("::1", 9090);
+  ubyte[] v4Entry = [10, 1, 2, 3];
+  ubyte[] v4Reversed = [3, 2, 1, 10];
+  ubyte[] v6Entry = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
+  enforce(manager.verify(v4, v4Entry) == Decision.ALLOW,
+    "an IPv4 entry naming the peer address must match it");
+  enforce(manager.verify(v4, v4Reversed) == Decision.SKIP,
+    "an IPv4 entry is compared in network byte order");
+  enforce(manager.verify(v4, v6Entry) == Decision.SKIP,
+    "an IPv6 entry does not match an IPv4 peer");
+  enforce(manager.verify(v6, v6Entry) == Decision.ALLOW,
+    "an IPv6 entry naming the peer address must match it");
+  enforce(manager.verify(v6, v4Entry) == Decision.SKIP,
+    "an IPv4 entry does not match an IPv6 peer");
 }
 
 private {
@@ -652,6 +706,28 @@ private {
    * Returns: true if host matches pattern, false otherwise.
    */
   bool matchName(const(char)[] host, const(char)[] pattern) {
+    // RFC 6125 6.4.3: a wildcard must not appear outside the leftmost label.
+    bool pastFirstDot;
+    bool wildcard;
+    ptrdiff_t firstDot = -1;
+    foreach (i, c; pattern) {
+      if (c == '.') {
+        if (firstDot < 0) firstDot = i;
+        pastFirstDot = true;
+        continue;
+      }
+      if (c == '*' && pastFirstDot) {
+        return false;
+      }
+      if (c == '*') wildcard = true;
+    }
+    // A wildcard stands in for the leftmost label of a longer name. On its
+    // own, or with nothing after its dot, it would cover every single-label
+    // host name.
+    if (wildcard && (firstDot < 0 || firstDot == pattern.length - 1)) {
+      return false;
+    }
+
     while (!host.empty && !pattern.empty) {
       if (toUpper(pattern.front) == toUpper(host.front)) {
         host.popFront;
@@ -670,8 +746,26 @@ private {
 
   unittest {
     enforce(matchName("thrift.apache.org", "*.apache.org"));
+    enforce(matchName("THRIFT.APACHE.ORG", "*.apache.org"));
     enforce(!matchName("thrift.apache.org", "apache.org"));
-    enforce(matchName("thrift.apache.org", "thrift.*.*"));
+
+    // A wildcard is confined to the leftmost label. The first of these used to
+    // be asserted the other way round, which is what let the rest through.
+    enforce(!matchName("thrift.apache.org", "thrift.*.*"));
+    enforce(!matchName("example.foo.com", "example.*.com"));
+    enforce(!matchName("a.evil.com", "a.ev*.com"));
+
+    // ... and it covers one label, not several.
+    enforce(!matchName("foo.bar.apache.org", "*.apache.org"));
+
+    // ... and it needs a label after it: on its own, or with nothing after
+    // its dot, it would cover every single-label host name.
+    enforce(!matchName("localhost", "*"));
+    enforce(!matchName("redis", "*"));
+    enforce(!matchName("foo", "f*"));
+    enforce(!matchName("localhost.", "*."));
+    enforce(matchName("localhost", "localhost"));
+
     enforce(matchName("", ""));
     enforce(!matchName("", "*"));
   }

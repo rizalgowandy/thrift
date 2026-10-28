@@ -18,7 +18,6 @@
  */
 package org.apache.thrift.transport;
 
-
 import org.apache.thrift.TConfiguration;
 
 public class ReadCountingTransport extends TTransport {
@@ -74,5 +73,10 @@ public class ReadCountingTransport extends TTransport {
   @Override
   public void checkReadBytesAvailable(long numBytes) throws TTransportException {
     trans.checkReadBytesAvailable(numBytes);
+  }
+
+  @Override
+  public void resetMessageSizeAndConsumedBytes(long newSize) throws TTransportException {
+    trans.resetMessageSizeAndConsumedBytes(newSize);
   }
 }

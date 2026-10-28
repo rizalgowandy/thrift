@@ -37,18 +37,26 @@ func init() {
 }
 
 func StartClient(
-	host string,
-	port int64,
-	domain_socket string,
+	addr string,
 	transport string,
 	protocol string,
 	ssl bool,
+	certPath string,
 ) (client *thrifttest.ThriftTestClient, trans thrift.TTransport, err error) {
-	hostPort := fmt.Sprintf("%s:%d", host, port)
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	if ssl && certPath != "" {
+		// The test servers that ask for a client certificate trust
+		// client_v3.crt, so present it as the other cross-test clients do.
+		cert, err := tls.LoadX509KeyPair(certPath+"/client_v3.crt", certPath+"/client_v3.key")
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
 	cfg := &thrift.TConfiguration{
-		TLSConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
+		TLSConfig: tlsConfig,
 	}
 
 	var protocolFactory thrift.TProtocolFactory
@@ -70,13 +78,9 @@ func StartClient(
 		protocolFactory = thrift.NewTDebugProtocolFactoryWithLogger(protocolFactory, "client:", thrift.StdLogger(nil))
 	}
 	if ssl {
-		trans = thrift.NewTSSLSocketConf(hostPort, cfg)
+		trans = thrift.NewTSSLSocketConf(addr, cfg)
 	} else {
-		if domain_socket != "" {
-			trans = thrift.NewTSocketConf(domain_socket, nil)
-		} else {
-			trans = thrift.NewTSocketConf(hostPort, nil)
-		}
+		trans = thrift.NewTSocketConf(addr, nil)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -85,13 +89,12 @@ func StartClient(
 	case "http":
 		if ssl {
 			tr := &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: tlsConfig,
 			}
 			client := &http.Client{Transport: tr}
-			trans, err = thrift.NewTHttpClientWithOptions(fmt.Sprintf("https://%s/", hostPort), thrift.THttpClientOptions{Client: client})
-			fmt.Println(hostPort)
+			trans, err = thrift.NewTHttpClientWithOptions(fmt.Sprintf("https://%s/", addr), thrift.THttpClientOptions{Client: client})
 		} else {
-			trans, err = thrift.NewTHttpClient(fmt.Sprintf("http://%s/", hostPort))
+			trans, err = thrift.NewTHttpClient(fmt.Sprintf("http://%s/", addr))
 		}
 	case "framed":
 		trans = thrift.NewTFramedTransportConf(trans, cfg)

@@ -1,4 +1,5 @@
 <?php
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements. See the NOTICE file
@@ -20,21 +21,25 @@
  * @package thrift.protocol
  */
 
+declare(strict_types=1);
+
 namespace Thrift\Factory;
 
 use Thrift\Protocol\TJSONProtocol;
+use Thrift\Transport\TTransport;
 
 /**
  * JSON Protocol Factory
  */
 class TJSONProtocolFactory implements TProtocolFactory
 {
-    public function __construct()
-    {
+    public function __construct(
+        private int $maxStringSize = TJSONProtocol::DEFAULT_MAX_STRING_SIZE,
+    ) {
     }
 
-    public function getProtocol($trans)
+    public function getProtocol(TTransport $trans): TJSONProtocol
     {
-        return new TJSONProtocol($trans);
+        return new TJSONProtocol($trans, $this->maxStringSize);
     }
 }

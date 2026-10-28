@@ -85,18 +85,18 @@ namespace Thrift.Protocol
 
         protected void CheckReadBytesAvailable(TSet set)
         {
-            Transport.CheckReadBytesAvailable(set.Count * GetMinSerializedSize(set.ElementType));
+            Transport.CheckReadBytesAvailable((long)set.Count * GetMinSerializedSize(set.ElementType));
         }
 
         protected void CheckReadBytesAvailable(TList list)
         {
-            Transport.CheckReadBytesAvailable(list.Count * GetMinSerializedSize(list.ElementType));
+            Transport.CheckReadBytesAvailable((long)list.Count * GetMinSerializedSize(list.ElementType));
         }
 
         protected void CheckReadBytesAvailable(TMap map)
         {
             var elmSize = GetMinSerializedSize(map.KeyType) + GetMinSerializedSize(map.ValueType);
-            Transport.CheckReadBytesAvailable(map.Count * elmSize);
+            Transport.CheckReadBytesAvailable((long)map.Count * elmSize);
         }
 
         // Returns the minimum amount of bytes needed to store the smallest possible instance of TType.
@@ -148,6 +148,7 @@ namespace Thrift.Protocol
         }
 
         public abstract Task WriteBinaryAsync(byte[] bytes, CancellationToken cancellationToken = default);
+        public abstract Task WriteUuidAsync(Guid uuid, CancellationToken cancellationToken = default);
 
         public abstract ValueTask<TMessage> ReadMessageBeginAsync(CancellationToken cancellationToken = default);
 
@@ -192,5 +193,7 @@ namespace Thrift.Protocol
         }
 
         public abstract ValueTask<byte[]> ReadBinaryAsync(CancellationToken cancellationToken = default);
+
+        public abstract ValueTask<Guid> ReadUuidAsync(CancellationToken cancellationToken = default);
     }
 }

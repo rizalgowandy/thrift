@@ -23,33 +23,42 @@ import org.apache.thrift.protocol.TMessage;
 import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.server.AbstractNonblockingServer;
 
-public abstract class AsyncProcessFunction<I, T extends TBase, R> {
-    final String methodName;
+public abstract class AsyncProcessFunction<I, T extends TBase, R, A extends TBase> {
+  final String methodName;
 
-    public AsyncProcessFunction(String methodName) {
-        this.methodName = methodName;
-    }
+  public AsyncProcessFunction(String methodName) {
+    this.methodName = methodName;
+  }
 
-    protected abstract boolean isOneway();
+  public abstract boolean isOneway();
 
-    public abstract void start(I iface, T args, AsyncMethodCallback<R> resultHandler) throws TException;
+  public abstract void start(I iface, T args, AsyncMethodCallback<R> resultHandler)
+      throws TException;
 
-    public abstract T getEmptyArgsInstance();
+  public abstract T getEmptyArgsInstance();
 
-    public abstract AsyncMethodCallback<R> getResultHandler(final AbstractNonblockingServer.AsyncFrameBuffer fb, int seqid);
+  public abstract A getEmptyResultInstance();
 
-    public String getMethodName() {
-        return methodName;
-    }
+  public abstract AsyncMethodCallback<R> getResultHandler(
+      final AbstractNonblockingServer.AsyncFrameBuffer fb, int seqid);
 
-    public void sendResponse(final AbstractNonblockingServer.AsyncFrameBuffer fb, final TSerializable result, final byte type, final int seqid) throws TException {
-        TProtocol oprot = fb.getOutputProtocol();
+  public String getMethodName() {
+    return methodName;
+  }
 
-        oprot.writeMessageBegin(new TMessage(getMethodName(), type, seqid));
-        result.write(oprot);
-        oprot.writeMessageEnd();
-        oprot.getTransport().flush();
+  public void sendResponse(
+      final AbstractNonblockingServer.AsyncFrameBuffer fb,
+      final TSerializable result,
+      final byte type,
+      final int seqid)
+      throws TException {
+    TProtocol oprot = fb.getOutputProtocol();
 
-        fb.responseReady();
-    }
+    oprot.writeMessageBegin(new TMessage(getMethodName(), type, seqid));
+    result.write(oprot);
+    oprot.writeMessageEnd();
+    oprot.getTransport().flush();
+
+    fb.responseReady();
+  }
 }

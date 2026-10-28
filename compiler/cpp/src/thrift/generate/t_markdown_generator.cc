@@ -17,18 +17,18 @@
  * under the License.
  */
 
-#include <string>
+#include <array>
 #include <fstream>
 #include <iostream>
-#include <vector>
 #include <map>
-#include <array>
+#include <string>
+#include <vector>
 
+#include "thrift/generate/t_generator.h"
+#include "thrift/platform.h"
+#include <sstream>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <sstream>
-#include "thrift/platform.h"
-#include "thrift/generate/t_generator.h"
 
 using std::map;
 using std::ofstream;
@@ -38,9 +38,6 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
-static const char endl = '\n'; // avoid ostream << std::endl flushes
-
-
 /**
  * MARKDOWN code generator
  *
@@ -48,28 +45,28 @@ static const char endl = '\n'; // avoid ostream << std::endl flushes
  */
 class t_markdown_generator : public t_generator {
 
-enum input_type { INPUT_UNKNOWN, INPUT_UTF8, INPUT_PLAIN };
+  enum input_type { INPUT_UNKNOWN, INPUT_UTF8, INPUT_PLAIN };
 
 public:
   t_markdown_generator(t_program* program,
                        const std::map<std::string, std::string>& parsed_options,
                        const std::string& option_string)
     : t_generator(program) {
-      
+
     (void)option_string;
     std::map<std::string, std::string>::const_iterator iter;
 
     unsafe_ = false;
-    for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
-      if( iter->first.compare("noescape") == 0) {
+    extension_ = ".md";
+    for (iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
+      if (iter->first.compare("noescape") == 0) {
         unsafe_ = true;
-      } else if( iter->first.compare("suffix") == 0 && !iter->second.empty()) {
-        extension_ = "." + iter->second;
+      } else if (iter->first.compare("suffix") == 0) {
+        extension_ = iter->second.empty() ? "" : ("." + iter->second);
       } else {
         throw "unknown option markdown:" + iter->first;
       }
     }
-
 
     out_dir_base_ = "gen-markdown";
     input_type_ = INPUT_UNKNOWN;
@@ -83,6 +80,8 @@ public:
 
     init_allowed__markup();
   }
+
+  std::string display_name() const override;
 
   void generate_program() override;
   void generate_program_toc();
@@ -109,6 +108,7 @@ public:
   void generate_xception(t_struct* txception) override;
 
   void print_doc(t_doc* tdoc);
+  void print_doc_with_at_params(t_doc* tdoc);
   int print_type(t_type* ttype);
   void print_const_value(t_type* type, t_const_value* tvalue);
   void print_fn_args_doc(t_function* tfunction);
@@ -124,16 +124,14 @@ private:
   std::string extension_;
 };
 
-
 /**
- * string to markdown-id link reference 
+ * string to markdown-id link reference
  */
 std::string t_markdown_generator::str_to_id(const std::string& s) {
   std::string id;
-  for(auto chr=s.begin();chr<=s.end(); ++chr) {
-    if(*chr == '.' || *chr == 0)
-      continue;
-    id += tolower(*chr); 
+  for (char c : s) {
+    if (c != '.')
+      id += tolower((unsigned char)c);
   }
   return id;
 }
@@ -142,10 +140,10 @@ std::string t_markdown_generator::str_to_id(const std::string& s) {
  * Emits the Table of Contents links at the top of the module's page
  */
 void t_markdown_generator::generate_program_toc() {
-  f_out_ << "| Module | Services & Functions | Data types | Constants |" << endl 
-         << "| --- | --- | --- | --- |" << endl;
+  f_out_ << "| Module | Services & Functions | Data types | Constants |" << '\n'
+         << "| --- | --- | --- | --- |" << '\n';
   generate_program_toc_row(program_);
-  f_out_ << endl;
+  f_out_ << '\n';
 }
 
 /**
@@ -155,7 +153,7 @@ void t_markdown_generator::generate_program_toc() {
  */
 void t_markdown_generator::generate_program_toc_rows(t_program* tprog,
                                                      std::vector<t_program*>& finished) {
-  for (auto & iter : finished) {
+  for (auto& iter : finished) {
     if (tprog->get_path() == iter->get_path()) {
       return;
     }
@@ -163,7 +161,7 @@ void t_markdown_generator::generate_program_toc_rows(t_program* tprog,
   finished.push_back(tprog);
   generate_program_toc_row(tprog);
   vector<t_program*> includes = tprog->get_includes();
-  for (auto & include : includes) {
+  for (auto& include : includes) {
     generate_program_toc_rows(include, finished);
   }
 }
@@ -184,36 +182,33 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
     vector<t_service*> services = tprog->get_services();
     vector<t_service*>::iterator sv_iter;
     for (sv_iter = services.begin(); sv_iter != services.end(); ++sv_iter) {
-      if(sv_iter != services.begin()) {
+      if (sv_iter != services.begin()) {
         filling.emplace_back();
         fill = &filling.back();
       }
       string name = get_service_name(*sv_iter);
-      (*fill)[1] = "[" + name + "](" 
-        + make_file_link(fname) 
-        + "#service-" + str_to_id(name) + ")";
-  
+      (*fill)[1] = "[" + name + "](" + make_file_link(fname) + "#service-" + str_to_id(name) + ")";
+
       vector<t_function*> functions = (*sv_iter)->get_functions();
       vector<t_function*>::iterator fn_iter;
-      for (fn_iter = functions.begin(); fn_iter != functions.end(); ++fn_iter) {   
-        string fn_name = (*fn_iter)->get_name(); 
+      for (fn_iter = functions.begin(); fn_iter != functions.end(); ++fn_iter) {
+        string fn_name = (*fn_iter)->get_name();
         filling.emplace_back();
         fill = &filling.back();
-        (*fill)[1] = "	[ &bull; " + fn_name + "](" 
-          + make_file_link(fname) 
-          + "#function-" + str_to_id(name + fn_name) + ")";
+        (*fill)[1] = "    [ &bull; " + fn_name + "](" + make_file_link(fname) + "#function-"
+                     + str_to_id(name + fn_name) + ")";
       }
     }
   }
-  
-  // Data Types Column 
+
+  // Data Types Column
   auto it_fill = filling.begin();
 
   if (!tprog->get_enums().empty()) {
     vector<t_enum*> enums = tprog->get_enums();
     vector<t_enum*>::iterator en_iter;
     for (en_iter = enums.begin(); en_iter != enums.end(); ++en_iter) {
-      if(it_fill == filling.end()) {
+      if (it_fill == filling.end()) {
         filling.emplace_back();
         fill = &filling.back();
         it_fill = filling.end();
@@ -222,16 +217,15 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
         ++it_fill;
       }
       string name = (*en_iter)->get_name();
-      (*fill)[2] = "[" + name + "](" 
-        + make_file_link(fname) 
-        + "#enumeration-" + str_to_id(name) + ")";
+      (*fill)[2]
+          = "[" + name + "](" + make_file_link(fname) + "#enumeration-" + str_to_id(name) + ")";
     }
   }
   if (!tprog->get_typedefs().empty()) {
     vector<t_typedef*> typedefs = tprog->get_typedefs();
     vector<t_typedef*>::iterator td_iter;
     for (td_iter = typedefs.begin(); td_iter != typedefs.end(); ++td_iter) {
-      if(it_fill == filling.end()) {
+      if (it_fill == filling.end()) {
         filling.emplace_back();
         fill = &filling.back();
         it_fill = filling.end();
@@ -240,16 +234,14 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
         ++it_fill;
       }
       string name = (*td_iter)->get_symbolic();
-      (*fill)[2] = "[" + name + "](" 
-        + make_file_link(fname) 
-        + "#typedef-" + str_to_id(name) + ")";
+      (*fill)[2] = "[" + name + "](" + make_file_link(fname) + "#typedef-" + str_to_id(name) + ")";
     }
   }
   if (!tprog->get_objects().empty()) {
     vector<t_struct*> objects = tprog->get_objects();
     vector<t_struct*>::iterator o_iter;
-    for (o_iter = objects.begin(); o_iter != objects.end(); ++o_iter) {      
-      if(it_fill == filling.end()) {
+    for (o_iter = objects.begin(); o_iter != objects.end(); ++o_iter) {
+      if (it_fill == filling.end()) {
         filling.emplace_back();
         fill = &filling.back();
         it_fill = filling.end();
@@ -259,7 +251,7 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
       }
       string name = (*o_iter)->get_name();
       (*fill)[2] = "[" + name + "](" + make_file_link(fname);
-      
+
       if ((*o_iter)->is_xception()) {
         (*fill)[2] += "#exception-";
       } else if ((*o_iter)->is_struct() && (*o_iter)->is_union()) {
@@ -268,11 +260,10 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
         (*fill)[2] += "#struct-";
       }
       (*fill)[2] += str_to_id(name) + ")";
-      
     }
   }
-  
-  // Constants Column 
+
+  // Constants Column
   it_fill = filling.begin();
 
   if (!tprog->get_consts().empty()) {
@@ -280,7 +271,7 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
     vector<t_const*> consts = tprog->get_consts();
     vector<t_const*>::iterator con_iter;
     for (con_iter = consts.begin(); con_iter != consts.end(); ++con_iter) {
-      if(it_fill == filling.end()) {
+      if (it_fill == filling.end()) {
         filling.emplace_back();
         fill = &filling.back();
         it_fill = filling.end();
@@ -289,19 +280,15 @@ void t_markdown_generator::generate_program_toc_row(t_program* tprog) {
         ++it_fill;
       }
       string name = (*con_iter)->get_name();
-      (*fill)[3] = "[" + name + "](" 
-        + make_file_link(fname) 
-        + "#constant-" + str_to_id(name) + ")";
+      (*fill)[3] = "[" + name + "](" + make_file_link(fname) + "#constant-" + str_to_id(name) + ")";
     }
-    
   }
-  
-  for(auto& fill : filling) {
-    for(auto& c : fill)
-      f_out_ << '|' << c;  
-    f_out_ << '|' << endl;
+
+  for (auto& fill : filling) {
+    for (auto& c : fill)
+      f_out_ << '|' << c;
+    f_out_ << '|' << '\n';
   }
-  f_out_ << endl;
 }
 
 /**
@@ -316,24 +303,23 @@ void t_markdown_generator::generate_program() {
   current_file_ = make_file_name(pname);
   string fname = get_out_dir() + current_file_;
   f_out_.open(fname.c_str());
-  f_out_ << "# Thrift module: " << pname << endl << endl;
+  f_out_ << "# Thrift module: " << pname << '\n' << '\n';
 
   print_doc(program_);
-  f_out_ << endl << endl;
+  f_out_ << '\n' << '\n';
 
   generate_program_toc();
 
   if (!program_->get_consts().empty()) {
-    f_out_ << "***" << endl << "## Constants" << endl << endl;
+    f_out_ << "***" << '\n' << "## Constants" << '\n' << '\n';
     vector<t_const*> consts = program_->get_consts();
-    f_out_ << "|Constant|Type|Value||" << endl
-           << "|---|---|---|---|" << endl;
+    f_out_ << "|Constant|Type|Value||" << '\n' << "|---|---|---|---|" << '\n';
     generate_consts(consts);
-    f_out_ << endl;
+    f_out_ << '\n';
   }
 
   if (!program_->get_enums().empty()) {
-    f_out_ << "***" << endl << "## Enumerations" << endl << endl;
+    f_out_ << "***" << '\n' << "## Enumerations" << '\n' << '\n';
     // Generate enums
     vector<t_enum*> enums = program_->get_enums();
     vector<t_enum*>::iterator en_iter;
@@ -343,7 +329,7 @@ void t_markdown_generator::generate_program() {
   }
 
   if (!program_->get_typedefs().empty()) {
-    f_out_ << "***" << endl << "## Type declarations" << endl << endl;
+    f_out_ << "***" << '\n' << "## Type declarations" << '\n' << '\n';
     // Generate typedefs
     vector<t_typedef*> typedefs = program_->get_typedefs();
     vector<t_typedef*>::iterator td_iter;
@@ -353,7 +339,7 @@ void t_markdown_generator::generate_program() {
   }
 
   if (!program_->get_objects().empty()) {
-    f_out_ << "***" << endl << "## Data structures" << endl << endl;
+    f_out_ << "***" << '\n' << "## Data structures" << '\n' << '\n';
     // Generate structs and exceptions in declared order
     vector<t_struct*> objects = program_->get_objects();
     vector<t_struct*>::iterator o_iter;
@@ -367,7 +353,7 @@ void t_markdown_generator::generate_program() {
   }
 
   if (!program_->get_services().empty()) {
-    f_out_ << "***" << endl << "## Services" << endl << endl;
+    f_out_ << "***" << '\n' << "## Services" << '\n' << '\n';
     // Generate services
     vector<t_service*> services = program_->get_services();
     vector<t_service*>::iterator sv_iter;
@@ -377,7 +363,7 @@ void t_markdown_generator::generate_program() {
     }
   }
 
-  f_out_ << endl;
+  f_out_ << '\n';
   f_out_.close();
 
   generate_index();
@@ -390,19 +376,15 @@ void t_markdown_generator::generate_index() {
   current_file_ = make_file_name("index");
   string index_fname = get_out_dir() + current_file_;
   f_out_.open(index_fname.c_str());
-  
-  f_out_ << "# Thrift declarations" << endl;
-  f_out_ << "| Module | Services & Functions | Data types | Constants |" 
-         << endl 
-         << "| --- | --- | --- | --- |" 
-         << endl;
+
+  f_out_ << "# Thrift declarations" << '\n';
+  f_out_ << "| Module | Services & Functions | Data types | Constants |" << '\n'
+         << "| --- | --- | --- | --- |" << '\n';
   vector<t_program*> programs;
   generate_program_toc_rows(program_, programs);
-  f_out_ << endl;
+  f_out_ << '\n';
   f_out_.close();
 }
-
-
 
 /**
  * Returns the target file for a <a href> link
@@ -419,7 +401,6 @@ std::string t_markdown_generator::make_file_name(std::string filename) {
   return extension_.empty() ? filename : (filename + extension_);
 }
 
-
 /**
  * If the provided documentable object has documentation attached, this
  * will emit it to the output stream in HTML format.
@@ -431,6 +412,182 @@ void t_markdown_generator::print_doc(t_doc* tdoc) {
     } else {
       f_out_ << escape_html(tdoc->get_doc());
     }
+  }
+}
+
+static std::string escape_md_table_cell(const std::string& s) {
+  std::string result;
+  result.reserve(s.size());
+  for (char c : s) {
+    if (c == '|')
+      result += "\\|";
+    else if (c == '\r' || c == '\n')
+      result += ' ';
+    else
+      result += c;
+  }
+  while (!result.empty() && result.back() == ' ')
+    result.pop_back();
+  return result;
+}
+
+/**
+ * Prints function documentation, rendering @param and @return tags as a table.
+ * Tags are only recognised at the start of a line (after optional whitespace),
+ * so @-signs embedded in prose (e.g. email addresses) are left untouched.
+ * Text preceding the first tag line is emitted as normal prose.
+ */
+void t_markdown_generator::print_doc_with_at_params(t_doc* tdoc) {
+  if (!tdoc->has_doc())
+    return;
+  const string& raw = tdoc->get_doc();
+
+  // Split raw doc into lines (tolerate both \n and \r\n)
+  vector<string> lines;
+  {
+    size_t start = 0;
+    for (size_t i = 0; i <= raw.size(); ++i) {
+      if (i == raw.size() || raw[i] == '\n') {
+        size_t end = i;
+        if (end > start && raw[end - 1] == '\r')
+          --end;
+        lines.push_back(raw.substr(start, end - start));
+        start = i + 1;
+      }
+    }
+  }
+
+  // Returns true when a line is a recognised tag line (@param / @return).
+  // On success, tag_name and rest receive the tag keyword and the remainder.
+  auto parse_tag_line = [](const string& line, string& tag_name, string& rest) -> bool {
+    size_t p = 0;
+    while (p < line.size() && isspace((unsigned char)line[p]))
+      ++p;
+    if (p >= line.size() || line[p] != '@')
+      return false;
+    ++p;
+    size_t tn = p;
+    while (p < line.size() && isalpha((unsigned char)line[p]))
+      ++p;
+    tag_name = line.substr(tn, p - tn);
+    if (tag_name != "param" && tag_name != "return")
+      return false;
+    while (p < line.size() && isspace((unsigned char)line[p]))
+      ++p;
+    rest = line.substr(p);
+    return true;
+  };
+
+  // Bail out early if there are no tag lines at all
+  {
+    bool has_tags = false;
+    for (auto& l : lines) {
+      string dummy1, dummy2;
+      if (parse_tag_line(l, dummy1, dummy2)) {
+        has_tags = true;
+        break;
+      }
+    }
+    if (!has_tags) {
+      print_doc(tdoc);
+      return;
+    }
+  }
+
+  // Accumulate general prose and tagged entries
+  string general;
+  struct raw_entry {
+    string tag;
+    string content;
+  };
+  vector<raw_entry> entries;
+  bool in_general = true;
+
+  for (auto& line : lines) {
+    string tag_name, rest;
+    if (parse_tag_line(line, tag_name, rest)) {
+      in_general = false;
+      entries.push_back({tag_name, rest});
+    } else if (in_general) {
+      general += line + "\n";
+    } else if (!entries.empty()) {
+      // Continuation line: trim and append to last entry's content
+      size_t ts = 0;
+      while (ts < line.size() && isspace((unsigned char)line[ts]))
+        ++ts;
+      string trimmed = line.substr(ts);
+      while (!trimmed.empty() && isspace((unsigned char)trimmed.back()))
+        trimmed.pop_back();
+      if (!trimmed.empty())
+        entries.back().content += " " + trimmed;
+    }
+  }
+
+  // Trim trailing whitespace from general prose
+  while (!general.empty() && isspace((unsigned char)general.back()))
+    general.pop_back();
+
+  // Split each entry's content at the first ' - ' / ' -<end>' separator
+  struct parsed_entry {
+    string tag;
+    string signature;
+    string description;
+  };
+  vector<parsed_entry> parsed;
+  for (auto& e : entries) {
+    string sig, desc;
+    size_t dash_pos = string::npos;
+    for (size_t i = 0; i < e.content.size(); ++i) {
+      if (e.content[i] == '-') {
+        bool before_ok = (i == 0) || isspace((unsigned char)e.content[i - 1]);
+        bool after_ok = (i + 1 >= e.content.size()) || isspace((unsigned char)e.content[i + 1]);
+        if (before_ok && after_ok) {
+          dash_pos = i;
+          break;
+        }
+      }
+    }
+    if (dash_pos != string::npos) {
+      sig = e.content.substr(0, dash_pos);
+      while (!sig.empty() && isspace((unsigned char)sig.back()))
+        sig.pop_back();
+      size_t ds = dash_pos + 1;
+      while (ds < e.content.size() && isspace((unsigned char)e.content[ds]))
+        ++ds;
+      desc = e.content.substr(ds);
+      while (!desc.empty() && isspace((unsigned char)desc.back()))
+        desc.pop_back();
+    } else {
+      sig = e.content;
+      while (!sig.empty() && isspace((unsigned char)sig.back()))
+        sig.pop_back();
+    }
+    parsed.push_back({e.tag, sig, desc});
+  }
+
+  // Emit prose
+  if (!general.empty()) {
+    f_out_ << (unsafe_ ? general : escape_html(general));
+    f_out_ << "\n\n";
+  }
+
+  // Emit @param / @return as a Markdown table
+  if (!parsed.empty()) {
+    f_out_ << "| Name | Description |\n"
+           << "| --- | --- |\n";
+    for (auto& p : parsed) {
+      string cell_sig = escape_md_table_cell(p.signature);
+      string cell_desc = escape_md_table_cell(unsafe_ ? p.description : escape_html(p.description));
+      if (p.tag == "param") {
+        f_out_ << "| `" << cell_sig << "` | " << cell_desc << " |\n";
+      } else {
+        string ret_col = "**Returns**";
+        if (!cell_sig.empty())
+          ret_col += " `" + cell_sig + "`";
+        f_out_ << "| " << ret_col << " | " << cell_desc << " |\n";
+      }
+    }
+    f_out_ << '\n';
   }
 }
 
@@ -597,8 +754,8 @@ std::string t_markdown_generator::escape_html_tags(std::string const& str) {
     if (first_white != string::npos) {
       tag_key.erase(first_white);
     }
-    for (char & i : tag_key) {
-      i = tolower(i);
+    for (char& i : tag_key) {
+      i = (char)tolower((unsigned char)i);
     }
     if (allowed_markup.find(tag_key) != allowed_markup.end()) {
       result << "<" << tag_content << ">";
@@ -614,7 +771,7 @@ std::string t_markdown_generator::escape_html_tags(std::string const& str) {
 std::string t_markdown_generator::escape_html(std::string const& str) {
   // the generated HTML header says it is UTF-8 encoded
   // if UTF-8 input has been detected before, we don't need to change anything
-  //if (input_type_ == INPUT_UTF8) {
+  // if (input_type_ == INPUT_UTF8) {
   //  return escape_html_tags(str);
   //}
 
@@ -714,20 +871,18 @@ int t_markdown_generator::print_type(t_type* ttype) {
       f_out_ << "&gt;";
     }
   } else if (ttype->is_base_type()) {
-    f_out_ << "```" << (ttype->is_binary() ? "binary" : ttype->get_name()) 
-           << "```";
+    f_out_ << "```" << (ttype->is_binary() ? "binary" : ttype->get_name()) << "```";
     len = ttype->get_name().size();
   } else {
     string prog_name = ttype->get_program()->get_name();
     string type_name = ttype->get_name();
-    f_out_ << "[```" << type_name << "```](" 
-           << make_file_link(make_file_name(prog_name)) << "#";
+    f_out_ << "[```" << type_name << "```](" << make_file_link(make_file_name(prog_name)) << "#";
     if (ttype->is_typedef()) {
       f_out_ << "typedef-";
     } else if (ttype->is_xception()) {
       f_out_ << "exception-";
     } else if (ttype->is_struct()) {
-      if(((t_struct*)ttype)->is_union())
+      if (((t_struct*)ttype)->is_union())
         f_out_ << "union-";
       else
         f_out_ << "struct-";
@@ -738,10 +893,10 @@ int t_markdown_generator::print_type(t_type* ttype) {
     }
     len = type_name.size();
     if (ttype->get_program() != program_) {
-      f_out_ << str_to_id(prog_name); 
+      f_out_ << str_to_id(prog_name);
       len += prog_name.size() + 1;
     }
-    f_out_ <<  str_to_id(type_name) << ')';
+    f_out_ << str_to_id(type_name) << ')';
   }
   return (int)len;
 }
@@ -755,9 +910,8 @@ void t_markdown_generator::print_const_value(t_type* type, t_const_value* tvalue
   if (tvalue->get_type() == t_const_value::CV_IDENTIFIER) {
     string fname = make_file_name(program_->get_name());
     string name = escape_html(tvalue->get_identifier());
-    f_out_ << "[```" << name << "```](" 
-      + make_file_link(fname) 
-      + "#constant-" + str_to_id(name) + ")";
+    f_out_ << "[```" << name
+           << "```](" + make_file_link(fname) + "#constant-" + str_to_id(name) + ")";
     return;
   }
 
@@ -771,8 +925,8 @@ void t_markdown_generator::print_const_value(t_type* type, t_const_value* tvalue
     t_base_type::t_base tbase = ((t_base_type*)truetype)->get_base();
     f_out_ << "```";
     switch (tbase) {
-    case t_base_type::TYPE_STRING: 
-      f_out_ << escape_html(get_escaped_string(tvalue));
+    case t_base_type::TYPE_STRING:
+      f_out_ << get_escaped_string(tvalue);
       break;
     case t_base_type::TYPE_BOOL:
       f_out_ << ((tvalue->get_integer() != 0) ? "true" : "false");
@@ -808,7 +962,8 @@ void t_markdown_generator::print_const_value(t_type* type, t_const_value* tvalue
     f_out_ << "{ ";
     const vector<t_field*>& fields = ((t_struct*)truetype)->get_members();
     vector<t_field*>::const_iterator f_iter;
-    const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val = tvalue->get_map();
+    const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val
+        = tvalue->get_map();
     map<t_const_value*, t_const_value*, t_const_value::value_compare>::const_iterator v_iter;
     for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
       t_type* field_type = nullptr;
@@ -891,17 +1046,17 @@ void t_markdown_generator::print_fn_args_doc(t_function* tfunction) {
     }
     if (has_docs) {
       arg_iter = args.begin();
-      f_out_ << endl << "* parameters:" << endl;
-      for (int n = 1; arg_iter != args.end(); ++arg_iter, ++n ) {
+      f_out_ << '\n' << "* parameters:" << '\n';
+      for (int n = 1; arg_iter != args.end(); ++arg_iter, ++n) {
         f_out_ << n << ". " << (*arg_iter)->get_name();
         f_out_ << " - " << escape_html((*arg_iter)->get_doc());
-        f_out_ << endl;
+        f_out_ << '\n';
       }
-      f_out_ << endl;
+      f_out_ << '\n';
     }
   }
-  if(!has_docs) 
-    f_out_ << endl;
+  if (!has_docs)
+    f_out_ << '\n';
 
   has_docs = false;
   vector<t_field*> excepts = tfunction->get_xceptions()->get_members();
@@ -915,14 +1070,14 @@ void t_markdown_generator::print_fn_args_doc(t_function* tfunction) {
     }
     if (has_docs) {
       ex_iter = excepts.begin();
-      f_out_ << "* exceptions:" << endl;
+      f_out_ << "* exceptions:" << '\n';
       for (; ex_iter != excepts.end(); ex_iter++) {
         f_out_ << "  * " << (*ex_iter)->get_type()->get_name();
         f_out_ << " - ";
         f_out_ << escape_html((*ex_iter)->get_doc());
-        f_out_ << endl;
+        f_out_ << '\n';
       }
-      f_out_ << endl;
+      f_out_ << '\n';
     }
   }
 }
@@ -934,13 +1089,13 @@ void t_markdown_generator::print_fn_args_doc(t_function* tfunction) {
  */
 void t_markdown_generator::generate_typedef(t_typedef* ttypedef) {
   string name = ttypedef->get_name();
-  f_out_ << "### Typedef: " << name  << endl;
+  f_out_ << "### Typedef: " << name << '\n';
   print_doc(ttypedef);
-  f_out_ << endl << endl;
+  f_out_ << '\n' << '\n';
   f_out_ << "_Base type_: **";
   print_type(ttypedef->get_type());
-  f_out_ << "**" << endl << endl;
-  f_out_ << endl;
+  f_out_ << "**" << '\n' << '\n';
+  f_out_ << '\n';
 }
 
 /**
@@ -950,10 +1105,9 @@ void t_markdown_generator::generate_typedef(t_typedef* ttypedef) {
  */
 void t_markdown_generator::generate_enum(t_enum* tenum) {
   string name = tenum->get_name();
-  f_out_ << "### Enumeration: " << name << endl;
+  f_out_ << "### Enumeration: " << name << '\n';
   print_doc(tenum);
-  f_out_  << endl << endl << "|Name|Value|Description|" << endl 
-          << "|---|---|---|" << endl;
+  f_out_ << '\n' << '\n' << "|Name|Value|Description|" << '\n' << "|---|---|---|" << '\n';
   vector<t_enum_value*> values = tenum->get_constants();
   vector<t_enum_value*>::iterator val_iter;
   for (val_iter = values.begin(); val_iter != values.end(); ++val_iter) {
@@ -963,9 +1117,9 @@ void t_markdown_generator::generate_enum(t_enum* tenum) {
     f_out_ << (*val_iter)->get_value();
     f_out_ << "```|";
     print_doc((*val_iter));
-    f_out_ << "|" << endl;
+    f_out_ << "|" << '\n';
   }
-  f_out_ << endl;
+  f_out_ << '\n';
 }
 
 /**
@@ -982,7 +1136,7 @@ void t_markdown_generator::generate_const(t_const* tconst) {
   if (tconst->has_doc()) {
     print_doc(tconst);
   }
-  f_out_ << '|' << endl;
+  f_out_ << '|' << '\n';
 }
 
 /**
@@ -1000,14 +1154,15 @@ void t_markdown_generator::generate_struct(t_struct* tstruct) {
   } else {
     f_out_ << "Struct: ";
   }
-  f_out_ << name << endl;
+  f_out_ << name << '\n';
   print_doc(tstruct);
-  f_out_ << endl << endl;
+  f_out_ << '\n' << '\n';
   vector<t_field*> members = tstruct->get_members();
   vector<t_field*>::iterator mem_iter = members.begin();
   f_out_ << "| Key | Field | Type | Description | Requiredness "
-            "| Default value |" << endl
-         << "| --- | --- | --- | --- | --- | --- |" << endl;
+            "| Default value |"
+         << '\n'
+         << "| --- | --- | --- | --- | --- | --- |" << '\n';
   for (; mem_iter != members.end(); mem_iter++) {
     f_out_ << '|' << (*mem_iter)->get_key();
     f_out_ << '|' << (*mem_iter)->get_name();
@@ -1019,7 +1174,7 @@ void t_markdown_generator::generate_struct(t_struct* tstruct) {
     } else if ((*mem_iter)->get_req() == t_field::T_REQUIRED) {
       f_out_ << "required";
     } else {
-      f_out_  << "default";
+      f_out_ << "default";
     }
     f_out_ << '|';
     t_const_value* default_val = (*mem_iter)->get_value();
@@ -1028,9 +1183,9 @@ void t_markdown_generator::generate_struct(t_struct* tstruct) {
       print_const_value((*mem_iter)->get_type(), default_val);
       f_out_ << "```";
     }
-    f_out_ << '|' << endl;
+    f_out_ << '|' << '\n';
   }
-  f_out_ << endl;
+  f_out_ << '\n';
 }
 
 /**
@@ -1048,32 +1203,32 @@ void t_markdown_generator::generate_xception(t_struct* txception) {
  * @param tservice The service definition
  */
 void t_markdown_generator::generate_service(t_service* tservice) {
-  f_out_ << "### Service: " << service_name_ << endl;
+  f_out_ << "### Service: " << service_name_ << '\n';
 
   if (tservice->get_extends()) {
     f_out_ << "**extends ** _";
     print_type(tservice->get_extends());
-    f_out_ << "_" << endl;
+    f_out_ << "_" << '\n';
   }
 
   print_doc(tservice);
-  f_out_ << endl;
+  f_out_ << '\n';
 
   vector<t_function*> functions = tservice->get_functions();
   vector<t_function*>::iterator fn_iter = functions.begin();
   for (; fn_iter != functions.end(); fn_iter++) {
     string fn_name = (*fn_iter)->get_name();
-    f_out_ << "#### Function: " << service_name_ << "." << fn_name << endl;
-    print_doc(*fn_iter);
-    f_out_ << endl << endl;
+    f_out_ << "#### Function: " << service_name_ << "." << fn_name << '\n';
+    print_doc_with_at_params(*fn_iter);
+    f_out_ << '\n' << '\n';
     print_type((*fn_iter)->get_returntype());
     bool first = true;
-    f_out_ << endl << " _" << fn_name << "_(";
+    f_out_ << '\n' << " _" << fn_name << "_(";
     vector<t_field*> args = (*fn_iter)->get_arglist()->get_members();
     vector<t_field*>::iterator arg_iter = args.begin();
     for (; arg_iter != args.end(); arg_iter++) {
       if (!first) {
-        f_out_ << "," << endl;
+        f_out_ << "," << '\n';
       }
       first = false;
       print_type((*arg_iter)->get_type());
@@ -1083,7 +1238,7 @@ void t_markdown_generator::generate_service(t_service* tservice) {
         print_const_value((*arg_iter)->get_type(), (*arg_iter)->get_value());
       }
     }
-    f_out_ << ")" << endl;
+    f_out_ << ")" << '\n';
     first = true;
     vector<t_field*> excepts = (*fn_iter)->get_xceptions()->get_members();
     vector<t_field*>::iterator ex_iter = excepts.begin();
@@ -1096,15 +1251,19 @@ void t_markdown_generator::generate_service(t_service* tservice) {
         first = false;
         print_type((*ex_iter)->get_type());
       }
-      f_out_ << endl;
+      f_out_ << '\n';
     }
     print_fn_args_doc(*fn_iter);
-    f_out_ << endl;
+    f_out_ << '\n';
   }
 }
 
-THRIFT_REGISTER_GENERATOR(
-    markdown,
-    "Markdown",
-    "    suffix:          Create files/links with/out 'md|html' default None\n"
-    "    noescape:        Do not escape with html-entities in doc text.\n")
+std::string t_markdown_generator::display_name() const {
+  return "Markdown";
+}
+
+THRIFT_REGISTER_GENERATOR(markdown,
+                          "Markdown",
+                          "    suffix=<ext>:    Override default file extension (default: md). Use "
+                          "suffix= (empty) for no extension.\n"
+                          "    noescape:        Do not escape with html-entities in doc text.\n")

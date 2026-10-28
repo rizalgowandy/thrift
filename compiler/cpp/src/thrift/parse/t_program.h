@@ -100,6 +100,13 @@ public:
   const std::vector<t_service*>& get_services() const { return services_; }
   const std::map<std::string, std::string>& get_namespaces() const { return namespaces_; }
 
+  /**
+   * Resolves every forward typedef the program's types refer to, so that an
+   * undeclared target or a typedef that refers to itself throws here rather
+   * than from inside a generator. Defined in parse.cc.
+   */
+  void resolve_types() const;
+
   // Program elements
   void add_typedef(t_typedef* td) { typedefs_.push_back(td); }
   void add_enum(t_enum* te) { enums_.push_back(te); }
@@ -331,20 +338,20 @@ public:
      return namespaces_;
   }
 
-  void set_namespace_annotations(std::string language, std::map<std::string, std::string> annotations) {
+  void set_namespace_annotations(std::string language, std::map<std::string, std::vector<std::string>> annotations) {
     namespace_annotations_[language] = annotations;
   }
 
-  const std::map<std::string, std::string>& get_namespace_annotations(const std::string& language) const {
+  const std::map<std::string, std::vector<std::string>>& get_namespace_annotations(const std::string& language) const {
     auto it = namespace_annotations_.find(language);
     if (namespace_annotations_.end() != it) {
       return it->second;
     }
-    static const std::map<std::string, std::string> emptyMap;
+    static const std::map<std::string, std::vector<std::string>> emptyMap;
     return emptyMap;
   }
 
-  std::map<std::string, std::string>& get_namespace_annotations(const std::string& language) {
+  std::map<std::string, std::vector<std::string>>& get_namespace_annotations(const std::string& language) {
     return namespace_annotations_[language];
   }
 
@@ -400,7 +407,7 @@ private:
   std::map<std::string, std::string> namespaces_;
 
   // Annotations for dynamic namespaces
-  std::map<std::string, std::map<std::string, std::string> > namespace_annotations_;
+  std::map<std::string, std::map<std::string, std::vector<std::string>>> namespace_annotations_;
 
   // C++ extra includes
   std::vector<std::string> cpp_includes_;

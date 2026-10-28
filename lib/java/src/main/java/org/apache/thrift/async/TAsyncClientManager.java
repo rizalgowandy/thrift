@@ -29,26 +29,24 @@ import java.util.Iterator;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeoutException;
-
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Contains selector thread which transitions method call objects
- */
+/** Contains selector thread which transitions method call objects */
 public class TAsyncClientManager {
   private static final Logger LOGGER = LoggerFactory.getLogger(TAsyncClientManager.class.getName());
 
   private final SelectThread selectThread;
-  private final ConcurrentLinkedQueue<TAsyncMethodCall> pendingCalls = new ConcurrentLinkedQueue<TAsyncMethodCall>();
+  private final ConcurrentLinkedQueue<TAsyncMethodCall<?>> pendingCalls =
+      new ConcurrentLinkedQueue<>();
 
   public TAsyncClientManager() throws IOException {
     this.selectThread = new SelectThread();
     selectThread.start();
   }
 
-  public void call(TAsyncMethodCall method) throws TException {
+  public void call(TAsyncMethodCall<?> method) throws TException {
     if (!isRunning()) {
       throw new TException("SelectThread is not running");
     }
@@ -68,7 +66,8 @@ public class TAsyncClientManager {
   private class SelectThread extends Thread {
     private final Selector selector;
     private volatile boolean running;
-    private final TreeSet<TAsyncMethodCall> timeoutWatchSet = new TreeSet<TAsyncMethodCall>(new TAsyncMethodCallTimeoutComparator());
+    private final TreeSet<TAsyncMethodCall<?>> timeoutWatchSet =
+        new TreeSet<>(new TAsyncMethodCallTimeoutComparator());
 
     public SelectThread() throws IOException {
       this.selector = SelectorProvider.provider().openSelector();
@@ -96,14 +95,15 @@ public class TAsyncClientManager {
               // No timeouts, so select indefinitely
               selector.select();
             } else {
-              // We have a timeout pending, so calculate the time until then and select appropriately
+              // We have a timeout pending, so calculate the time until then and select
+              // appropriately
               long nextTimeout = timeoutWatchSet.first().getTimeoutTimestamp();
               long selectTime = nextTimeout - System.currentTimeMillis();
               if (selectTime > 0) {
                 // Next timeout is in the future, select and wake up then
                 selector.select(selectTime);
               } else {
-                // Next timeout is now or in past, select immediately so we can time out
+                // Next timeout is now or in the past, select immediately, so we can time out
                 selector.selectNow();
               }
             }
@@ -134,12 +134,12 @@ public class TAsyncClientManager {
           keys.remove();
           if (!key.isValid()) {
             // this can happen if the method call experienced an error and the
-            // key was cancelled. can also happen if we timeout a method, which
+            // key was cancelled. can also happen if we time out a method, which
             // results in a channel close.
             // just skip
             continue;
           }
-          TAsyncMethodCall methodCall = (TAsyncMethodCall)key.attachment();
+          TAsyncMethodCall<?> methodCall = (TAsyncMethodCall<?>) key.attachment();
           methodCall.transition(key);
 
           // If done or error occurred, remove from timeout watch set
@@ -154,13 +154,19 @@ public class TAsyncClientManager {
 
     // Timeout any existing method calls
     private void timeoutMethods() {
-      Iterator<TAsyncMethodCall> iterator = timeoutWatchSet.iterator();
+      Iterator<TAsyncMethodCall<?>> iterator = timeoutWatchSet.iterator();
       long currentTime = System.currentTimeMillis();
       while (iterator.hasNext()) {
-        TAsyncMethodCall methodCall = iterator.next();
+        TAsyncMethodCall<?> methodCall = iterator.next();
         if (currentTime >= methodCall.getTimeoutTimestamp()) {
           iterator.remove();
-          methodCall.onError(new TimeoutException("Operation " + methodCall.getClass() + " timed out after " + (currentTime - methodCall.getStartTime()) + " ms."));
+          methodCall.onError(
+              new TimeoutException(
+                  "Operation "
+                      + methodCall.getClass()
+                      + " timed out after "
+                      + (currentTime - methodCall.getStartTime())
+                      + " ms."));
         } else {
           break;
         }
@@ -169,7 +175,7 @@ public class TAsyncClientManager {
 
     // Start any new calls
     private void startPendingMethods() {
-      TAsyncMethodCall methodCall;
+      TAsyncMethodCall<?> methodCall;
       while ((methodCall = pendingCalls.poll()) != null) {
         // Catch registration errors. method will catch transition errors and cleanup.
         try {
@@ -189,12 +195,14 @@ public class TAsyncClientManager {
   }
 
   /** Comparator used in TreeSet */
-  private static class TAsyncMethodCallTimeoutComparator implements Comparator<TAsyncMethodCall>, Serializable {
+  private static class TAsyncMethodCallTimeoutComparator
+      implements Comparator<TAsyncMethodCall<?>>, Serializable {
+    @Override
     public int compare(TAsyncMethodCall left, TAsyncMethodCall right) {
       if (left.getTimeoutTimestamp() == right.getTimeoutTimestamp()) {
-        return (int)(left.getSequenceId() - right.getSequenceId());
+        return (int) (left.getSequenceId() - right.getSequenceId());
       } else {
-        return (int)(left.getTimeoutTimestamp() - right.getTimeoutTimestamp());
+        return (int) (left.getTimeoutTimestamp() - right.getTimeoutTimestamp());
       }
     }
   }

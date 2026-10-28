@@ -18,35 +18,53 @@
  */
 package org.apache.thrift.transport.layered;
 
+import java.util.Objects;
 import org.apache.thrift.TConfiguration;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 
-import java.util.Objects;
+public abstract class TLayeredTransport extends TTransport {
 
-public abstract class TLayeredTransport extends TTransport{
+  private final TTransport innerTransport;
 
-    private TTransport innerTransport;
+  @Override
+  public TConfiguration getConfiguration() {
+    return innerTransport.getConfiguration();
+  }
 
-    public TConfiguration getConfiguration() {
-        return innerTransport.getConfiguration();
-    }
+  public TLayeredTransport(TTransport transport) {
+    Objects.requireNonNull(transport, "TTransport cannot be null.");
+    innerTransport = transport;
+  }
 
-    public TLayeredTransport(TTransport transport)
-    {
-        Objects.requireNonNull(transport, "TTransport cannot be null.");
-        innerTransport = transport;
-    }
+  @Override
+  public void updateKnownMessageSize(long size) throws TTransportException {
+    innerTransport.updateKnownMessageSize(size);
+  }
 
-    public void updateKnownMessageSize(long size) throws TTransportException {
-        innerTransport.updateKnownMessageSize(size);
-    }
+  @Override
+  public void checkReadBytesAvailable(long numBytes) throws TTransportException {
+    innerTransport.checkReadBytesAvailable(numBytes);
+  }
 
-    public void checkReadBytesAvailable(long numBytes) throws TTransportException {
-        innerTransport.checkReadBytesAvailable(numBytes);
-    }
+  @Override
+  public void resetMessageSizeAndConsumedBytes(long newSize) throws TTransportException {
+    innerTransport.resetMessageSizeAndConsumedBytes(newSize);
+  }
 
-    public TTransport getInnerTransport() {
-        return innerTransport;
-    }
+  public TTransport getInnerTransport() {
+    return innerTransport;
+  }
+
+  /**
+   * The maximum frame size a transport is already configured with, or the library default if it
+   * carries no configuration at all. A layered transport that was not asked for a maximum of its
+   * own passes this back, so that wrapping a transport cannot raise a limit its owner lowered.
+   */
+  protected static int configuredMaxFrameSize(TTransport transport) {
+    TConfiguration configuration = transport.getConfiguration();
+    return Objects.isNull(configuration)
+        ? TConfiguration.DEFAULT_MAX_FRAME_SIZE
+        : configuration.getMaxFrameSize();
+  }
 }

@@ -24,10 +24,15 @@ program client;
 
 uses
   SysUtils,
-  DataFactory in 'Performance\DataFactory.pas',
-  PerfTests in 'Performance\PerfTests.pas',
-  TestClient in 'TestClient.pas',
+  ConsoleHelper in 'ConsoleHelper.pas',
+  TestConstants in 'testsuite\TestConstants.pas',
+  TestClient in 'testsuite\client\TestClient.pas',
+  TestLogger in 'testsuite\client\TestLogger.pas',
+  UnitTests in 'testsuite\client\UnitTests.pas',
+  DataFactory in 'testsuite\client\Performance\DataFactory.pas',
+  UnitTestTransportFactory in 'testsuite\client\UnitTestTransportFactory.pas',
   Thrift.Test in 'gen-delphi\Thrift.Test.pas',
+  Recursive in 'gen-delphi\Recursive.pas',
   Thrift in '..\src\Thrift.pas',
   Thrift.Transport in '..\src\Thrift.Transport.pas',
   Thrift.Socket in '..\src\Thrift.Socket.pas',
@@ -45,7 +50,8 @@ uses
   Thrift.Stream in '..\src\Thrift.Stream.pas',
   Thrift.TypeRegistry in '..\src\Thrift.TypeRegistry.pas',
   Thrift.WinHTTP in '..\src\Thrift.WinHTTP.pas',
-  Thrift.Utils in '..\src\Thrift.Utils.pas';
+  Thrift.Utils in '..\src\Thrift.Utils.pas',
+  PerfTests in 'testsuite\client\Performance\PerfTests.pas';
 
 var
   nParamCount : Integer;

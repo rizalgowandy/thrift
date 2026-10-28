@@ -19,205 +19,302 @@
 
 package org.apache.thrift.protocol;
 
+import java.nio.ByteBuffer;
+import java.util.UUID;
 import org.apache.thrift.TException;
 
-import java.nio.ByteBuffer;
-
 /**
- * <code>TProtocolDecorator</code> forwards all requests to an enclosed
- * <code>TProtocol</code> instance, providing a way to author concise
- * concrete decorator subclasses.  While it has no abstract methods, it
- * is marked abstract as a reminder that by itself, it does not modify
- * the behaviour of the enclosed <code>TProtocol</code>.
+ * <code>TProtocolDecorator</code> forwards all requests to an enclosed <code>TProtocol</code>
+ * instance, providing a way to author concise concrete decorator subclasses. While it has no
+ * abstract methods, it is marked abstract as a reminder that by itself, it does not modify the
+ * behaviour of the enclosed <code>TProtocol</code>.
  *
- * <p>See p.175 of Design Patterns (by Gamma et al.)</p>
+ * <p>See p.175 of Design Patterns (by Gamma et al.)
  *
  * @see org.apache.thrift.protocol.TMultiplexedProtocol
  */
 public abstract class TProtocolDecorator extends TProtocol {
 
-    private final TProtocol concreteProtocol;
+  private final TProtocol concreteProtocol;
 
-    /**
-     * Encloses the specified protocol.
-     * @param protocol All operations will be forward to this protocol.  Must be non-null.
-     */
-    public TProtocolDecorator(TProtocol protocol) {
-        super(protocol.getTransport());
-        concreteProtocol = protocol;
-    }
+  /**
+   * Encloses the specified protocol.
+   *
+   * @param protocol All operations will be forward to this protocol. Must be non-null.
+   */
+  public TProtocolDecorator(TProtocol protocol) {
+    super(protocol.getTransport());
+    concreteProtocol = protocol;
+  }
 
-    public void writeMessageBegin(TMessage tMessage) throws TException {
-        concreteProtocol.writeMessageBegin(tMessage);
-    }
+  @Override
+  public void writeMessageBegin(TMessage tMessage) throws TException {
+    concreteProtocol.writeMessageBegin(tMessage);
+  }
 
-    public void writeMessageEnd() throws TException {
-        concreteProtocol.writeMessageEnd();
-    }
+  @Override
+  public void writeMessageEnd() throws TException {
+    concreteProtocol.writeMessageEnd();
+  }
 
-    public void writeStructBegin(TStruct tStruct) throws TException {
-        concreteProtocol.writeStructBegin(tStruct);
-    }
+  @Override
+  public void writeStructBegin(TStruct tStruct) throws TException {
+    concreteProtocol.writeStructBegin(tStruct);
+  }
 
-    public void writeStructEnd() throws TException {
-        concreteProtocol.writeStructEnd();
-    }
+  @Override
+  public UUID readUuid() throws TException {
+    return concreteProtocol.readUuid();
+  }
 
-    public void writeFieldBegin(TField tField) throws TException {
-        concreteProtocol.writeFieldBegin(tField);
-    }
+  @Override
+  public void writeUuid(UUID uuid) throws TException {
+    concreteProtocol.writeUuid(uuid);
+  }
 
-    public void writeFieldEnd() throws TException {
-        concreteProtocol.writeFieldEnd();
-    }
+  @Override
+  public void writeStructEnd() throws TException {
+    concreteProtocol.writeStructEnd();
+  }
 
-    public void writeFieldStop() throws TException {
-        concreteProtocol.writeFieldStop();
-    }
+  @Override
+  public void writeFieldBegin(TField tField) throws TException {
+    concreteProtocol.writeFieldBegin(tField);
+  }
 
-    public void writeMapBegin(TMap tMap) throws TException {
-        concreteProtocol.writeMapBegin(tMap);
-    }
+  @Override
+  public void writeFieldEnd() throws TException {
+    concreteProtocol.writeFieldEnd();
+  }
 
-    public void writeMapEnd() throws TException {
-        concreteProtocol.writeMapEnd();
-    }
+  @Override
+  public void writeFieldStop() throws TException {
+    concreteProtocol.writeFieldStop();
+  }
 
-    public void writeListBegin(TList tList) throws TException {
-        concreteProtocol.writeListBegin(tList);
-    }
+  @Override
+  public void writeMapBegin(TMap tMap) throws TException {
+    concreteProtocol.writeMapBegin(tMap);
+  }
 
-    public void writeListEnd() throws TException {
-        concreteProtocol.writeListEnd();
-    }
+  @Override
+  public void writeMapEnd() throws TException {
+    concreteProtocol.writeMapEnd();
+  }
 
-    public void writeSetBegin(TSet tSet) throws TException {
-        concreteProtocol.writeSetBegin(tSet);
-    }
+  @Override
+  public void writeListBegin(TList tList) throws TException {
+    concreteProtocol.writeListBegin(tList);
+  }
 
-    public void writeSetEnd() throws TException {
-        concreteProtocol.writeSetEnd();
-    }
+  @Override
+  public void writeListEnd() throws TException {
+    concreteProtocol.writeListEnd();
+  }
 
-    public void writeBool(boolean b) throws TException {
-        concreteProtocol.writeBool(b);
-    }
+  @Override
+  public void writeSetBegin(TSet tSet) throws TException {
+    concreteProtocol.writeSetBegin(tSet);
+  }
 
-    public void writeByte(byte b) throws TException {
-        concreteProtocol.writeByte(b);
-    }
+  @Override
+  public void writeSetEnd() throws TException {
+    concreteProtocol.writeSetEnd();
+  }
 
-    public void writeI16(short i) throws TException {
-        concreteProtocol.writeI16(i);
-    }
+  @Override
+  public void writeBool(boolean b) throws TException {
+    concreteProtocol.writeBool(b);
+  }
 
-    public void writeI32(int i) throws TException {
-        concreteProtocol.writeI32(i);
-    }
+  @Override
+  public void writeByte(byte b) throws TException {
+    concreteProtocol.writeByte(b);
+  }
 
-    public void writeI64(long l) throws TException {
-        concreteProtocol.writeI64(l);
-    }
+  @Override
+  public void writeI16(short i) throws TException {
+    concreteProtocol.writeI16(i);
+  }
 
-    public void writeDouble(double v) throws TException {
-        concreteProtocol.writeDouble(v);
-    }
+  @Override
+  public void writeI32(int i) throws TException {
+    concreteProtocol.writeI32(i);
+  }
 
-    public void writeString(String s) throws TException {
-        concreteProtocol.writeString(s);
-    }
+  @Override
+  public void writeI64(long l) throws TException {
+    concreteProtocol.writeI64(l);
+  }
 
-    public void writeBinary(ByteBuffer buf) throws TException {
-        concreteProtocol.writeBinary(buf);
-    }
+  @Override
+  public void writeDouble(double v) throws TException {
+    concreteProtocol.writeDouble(v);
+  }
 
-    public TMessage readMessageBegin() throws TException {
-        return concreteProtocol.readMessageBegin();
-    }
+  @Override
+  public void writeString(String s) throws TException {
+    concreteProtocol.writeString(s);
+  }
 
-    public void readMessageEnd() throws TException {
-        concreteProtocol.readMessageEnd();
-    }
+  @Override
+  public void writeBinary(ByteBuffer buf) throws TException {
+    concreteProtocol.writeBinary(buf);
+  }
 
-    public TStruct readStructBegin() throws TException {
-        return concreteProtocol.readStructBegin();
-    }
+  @Override
+  public TMessage readMessageBegin() throws TException {
+    return concreteProtocol.readMessageBegin();
+  }
 
-    public void readStructEnd() throws TException {
-        concreteProtocol.readStructEnd();
-    }
+  @Override
+  public void readMessageEnd() throws TException {
+    concreteProtocol.readMessageEnd();
+  }
 
-    public TField readFieldBegin() throws TException {
-        return concreteProtocol.readFieldBegin();
-    }
+  @Override
+  public TStruct readStructBegin() throws TException {
+    return concreteProtocol.readStructBegin();
+  }
 
-    public void readFieldEnd() throws TException {
-        concreteProtocol.readFieldEnd();
-    }
+  @Override
+  public void readStructEnd() throws TException {
+    concreteProtocol.readStructEnd();
+  }
 
-    public TMap readMapBegin() throws TException {
-        return concreteProtocol.readMapBegin();
-    }
+  @Override
+  public TField readFieldBegin() throws TException {
+    return concreteProtocol.readFieldBegin();
+  }
 
-    public void readMapEnd() throws TException {
-        concreteProtocol.readMapEnd();
-    }
+  @Override
+  public void readFieldEnd() throws TException {
+    concreteProtocol.readFieldEnd();
+  }
 
-    public TList readListBegin() throws TException {
-        return concreteProtocol.readListBegin();
-    }
+  @Override
+  public TMap readMapBegin() throws TException {
+    return concreteProtocol.readMapBegin();
+  }
 
-    public void readListEnd() throws TException {
-        concreteProtocol.readListEnd();
-    }
+  @Override
+  public void readMapEnd() throws TException {
+    concreteProtocol.readMapEnd();
+  }
 
-    public TSet readSetBegin() throws TException {
-        return concreteProtocol.readSetBegin();
-    }
+  @Override
+  public TList readListBegin() throws TException {
+    return concreteProtocol.readListBegin();
+  }
 
-    public void readSetEnd() throws TException {
-        concreteProtocol.readSetEnd();
-    }
+  @Override
+  public void readListEnd() throws TException {
+    concreteProtocol.readListEnd();
+  }
 
-    public boolean readBool() throws TException {
-        return concreteProtocol.readBool();
-    }
+  @Override
+  public TSet readSetBegin() throws TException {
+    return concreteProtocol.readSetBegin();
+  }
 
-    public byte readByte() throws TException {
-        return concreteProtocol.readByte();
-    }
+  @Override
+  public void readSetEnd() throws TException {
+    concreteProtocol.readSetEnd();
+  }
 
-    public short readI16() throws TException {
-        return concreteProtocol.readI16();
-    }
+  @Override
+  public boolean readBool() throws TException {
+    return concreteProtocol.readBool();
+  }
 
-    public int readI32() throws TException {
-        return concreteProtocol.readI32();
-    }
+  @Override
+  public byte readByte() throws TException {
+    return concreteProtocol.readByte();
+  }
 
-    public long readI64() throws TException {
-        return concreteProtocol.readI64();
-    }
+  @Override
+  public short readI16() throws TException {
+    return concreteProtocol.readI16();
+  }
 
-    public double readDouble() throws TException {
-        return concreteProtocol.readDouble();
-    }
+  @Override
+  public int readI32() throws TException {
+    return concreteProtocol.readI32();
+  }
 
-    public String readString() throws TException {
-        return concreteProtocol.readString();
-    }
+  @Override
+  public long readI64() throws TException {
+    return concreteProtocol.readI64();
+  }
 
-    public ByteBuffer readBinary() throws TException {
-        return concreteProtocol.readBinary();
-    }
+  @Override
+  public double readDouble() throws TException {
+    return concreteProtocol.readDouble();
+  }
 
-    /**
-     *
-     * @param type  Returns the minimum amount of bytes needed to store the smallest possible instance of TType.
-     * @return
-     * @throws TException
-     */
-    public int getMinSerializedSize(byte type) throws TException {
-        return concreteProtocol.getMinSerializedSize(type);
-    }
+  @Override
+  public String readString() throws TException {
+    return concreteProtocol.readString();
+  }
+
+  @Override
+  public ByteBuffer readBinary() throws TException {
+    return concreteProtocol.readBinary();
+  }
+
+  @Override
+  public int readFieldBeginData() throws TException {
+    return concreteProtocol.readFieldBeginData();
+  }
+
+  @Override
+  protected void skipBool() throws TException {
+    concreteProtocol.skipBool();
+  }
+
+  @Override
+  protected void skipByte() throws TException {
+    concreteProtocol.skipByte();
+  }
+
+  @Override
+  protected void skipI16() throws TException {
+    concreteProtocol.skipI16();
+  }
+
+  @Override
+  protected void skipI32() throws TException {
+    concreteProtocol.skipI32();
+  }
+
+  @Override
+  protected void skipI64() throws TException {
+    concreteProtocol.skipI64();
+  }
+
+  @Override
+  protected void skipDouble() throws TException {
+    concreteProtocol.skipDouble();
+  }
+
+  @Override
+  protected void skipBinary() throws TException {
+    concreteProtocol.skipBinary();
+  }
+
+  /**
+   * @param type Returns the minimum amount of bytes needed to store the smallest possible instance
+   *     of TType.
+   * @return size
+   * @throws TException if underlying protocol throws
+   */
+  @Override
+  public int getMinSerializedSize(byte type) throws TException {
+    return concreteProtocol.getMinSerializedSize(type);
+  }
+
+  @Override
+  public void reset() {
+    concreteProtocol.reset();
+  }
 }

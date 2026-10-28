@@ -30,7 +30,6 @@ check-local: prereq all
 	./node_modules/.bin/grunt
 
 doc: prereq
-	./node_modules/.bin/grunt jsdoc
 
 endif
 
@@ -47,6 +46,9 @@ dist-hook:
 	$(RM) -r $(distdir)/node_modules/
 	$(RM) -r $(distdir)/test/build/
 	$(RM) -r $(distdir)/test/gen-*/
+
+distdir:
+	$(MAKE) $(AM_MAKEFLAGS) distdir-am
 
 EXTRA_DIST = \
     coding_standards.md \

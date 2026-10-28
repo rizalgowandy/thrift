@@ -23,6 +23,13 @@
  * Tokenizes a thrift definition file.
  */
 
+/* Flex defines INT8_MIN and the other limit macros itself when it is not
+ * compiled as C99, guarded by #ifndef, and MSVC's stdint.h then redefines
+ * them (C4005). Including the header first makes the guards skip. */
+%top{
+#include <stdint.h>
+}
+
 %{
 
 /* This is redundant with some of the flags in Makefile.am, but it works
@@ -66,6 +73,8 @@
 #include "thrift/globals.h"
 #include "thrift/parse/t_program.h"
 
+static bool yyinput_reached_eof = false;
+
 /**
  * Must be included AFTER parse/t_program.h, but I can't remember why anymore
  * because I wrote this a while ago.
@@ -76,15 +85,21 @@
 #include "thrift/thrifty.hh"
 #endif
 
-void integer_overflow(char* text) {
+void integer_overflow(const char* text) {
   yyerror("This integer is too big: \"%s\"\n", text);
   exit(1);
 }
 
-void unexpected_token(char* text) {
+void unexpected_token(const char* text) {
   yyerror("Unexpected token in input: \"%s\"\n", text);
   exit(1);
 }
+
+void error_no_longer_supported(const char* text, const char* replace_with) {
+  yyerror("\"%s\" is no longer supported, use \"%s\" instead. Line %d\n", text, replace_with, yylineno);
+  exit(1);
+}
+
 
 %}
 
@@ -92,11 +107,6 @@ void unexpected_token(char* text) {
  * Provides the yylineno global, useful for debugging output
  */
 %option lex-compat
-
-/**
- * Our inputs are all single files, so no need for yywrap
- */
-%option noyywrap
 
 /**
  * We don't use it, and it fires up warnings at -Wall
@@ -130,12 +140,17 @@ literal_begin (['\"])
   int state = 0;  // 0 = normal, 1 = "*" seen, "*/" seen
   while(state < 2)
   {
+    yyinput_reached_eof = false;
     int ch = yyinput();
     parsed.push_back(ch);
     switch (ch) {
-      case EOF:
-        yyerror("Unexpected end of file in doc-comment at %d\n", yylineno);
-        exit(1);
+      case 0:
+        if (yyinput_reached_eof) {
+          yyerror("Unexpected end of file in doc-comment at %d\n", yylineno);
+          exit(1);
+        }
+        state = 0;
+        break;
       case '*':
         state = 1;
         break;
@@ -173,12 +188,17 @@ literal_begin (['\"])
   int state = 0;  // 0 = normal, 1 = "*" seen, "*/" seen
   while(state < 2)
   {
+    yyinput_reached_eof = false;
     int ch = yyinput();
     parsed.push_back(ch);
     switch (ch) {
-      case EOF:
-        yyerror("Unexpected end of file in multiline comment at %d\n", yylineno);
-        exit(1);
+      case 0:
+        if (yyinput_reached_eof) {
+          yyerror("Unexpected end of file in multiline comment at %d\n", yylineno);
+          exit(1);
+        }
+        state = 0;
+        break;
       case '*':
         state = 1;
         break;
@@ -203,29 +223,16 @@ literal_begin (['\"])
 "true"               { yylval.iconst=1; return tok_int_constant; }
 
 "namespace"          { return tok_namespace;            }
-"cpp_namespace"      { error_unsupported_namespace_decl("cpp"); /* do nothing */ }
 "cpp_include"        { return tok_cpp_include;          }
 "cpp_type"           { return tok_cpp_type;             }
-"java_package"       { error_unsupported_namespace_decl("java_package", "java"); /* do nothing */ }
-"delphi_namespace"   { error_unsupported_namespace_decl("delphi"); /* do nothing */ }
-"php_namespace"      { error_unsupported_namespace_decl("php"); /* do nothing */ }
-"py_module"          { error_unsupported_namespace_decl("py_module", "py"); /* do nothing */ }
-"perl_package"       { error_unsupported_namespace_decl("perl_package", "perl"); /* do nothing */ }
-"ruby_namespace"     { error_unsupported_namespace_decl("ruby"); /* do nothing */ }
-"smalltalk_category" { error_unsupported_namespace_decl("smalltalk_category", "st"); /* do nothing */ }
-"smalltalk_prefix"   { error_unsupported_namespace_decl("smalltalk_prefix", "st"); /* do nothing */ }
 "xsd_all"            { return tok_xsd_all;              }
 "xsd_optional"       { return tok_xsd_optional;         }
 "xsd_nillable"       { return tok_xsd_nillable;         }
-"xsd_namespace"      { error_unsupported_namespace_decl("xsd"); /* do nothing */ }
 "xsd_attrs"          { return tok_xsd_attrs;            }
 "include"            { return tok_include;              }
 "void"               { return tok_void;                 }
 "bool"               { return tok_bool;                 }
-"byte"               {
-  emit_byte_type_warning();
-  return tok_i8;
-}
+"byte"               { emit_byte_type_warning(); return tok_byte; }
 "i8"                 { return tok_i8;                   }
 "i16"                { return tok_i16;                  }
 "i32"                { return tok_i32;                  }
@@ -233,14 +240,7 @@ literal_begin (['\"])
 "double"             { return tok_double;               }
 "string"             { return tok_string;               }
 "binary"             { return tok_binary;               }
-"slist" {
-  pwarning(0, "\"slist\" is deprecated and will be removed in a future compiler version.  This type should be replaced with \"string\".\n");
-  return tok_slist;
-}
-"senum" {
-  pwarning(0, "\"senum\" is deprecated and will be removed in a future compiler version.  This type should be replaced with \"string\".\n");
-  return tok_senum;
-}
+"uuid"               { return tok_uuid;                 }
 "map"                { return tok_map;                  }
 "list"               { return tok_list;                 }
 "set"                { return tok_set;                  }
@@ -258,7 +258,7 @@ literal_begin (['\"])
 "optional"           { return tok_optional;             }
 "async" {
   pwarning(0, "\"async\" is deprecated.  It is called \"oneway\" now.\n");
-  return tok_oneway;
+  return tok_async;
 }
 "&"                  { return tok_reference;            }
 
@@ -301,17 +301,33 @@ literal_begin (['\"])
   std::string result;
   for(;;)
   {
+    yyinput_reached_eof = false;
     int ch = yyinput();
     switch (ch) {
-      case EOF:
-        yyerror("End of file while read string at %d\n", yylineno);
-        exit(1);
+      case 0:
+        if (yyinput_reached_eof) {
+          yyerror("End of file while reading string at %d\n", yylineno);
+          exit(1);
+        }
+        result.push_back('\0');
+        continue;
       case '\n':
-        yyerror("End of line while read string at %d\n", yylineno - 1);
+        yyerror("End of line while reading string at %d\n", yylineno - 1);
         exit(1);
       case '\\':
+        yyinput_reached_eof = false;
         ch = yyinput();
         switch (ch) {
+          case 0:
+            if (yyinput_reached_eof) {
+              yyerror("End of file while reading string at %d\n", yylineno);
+              exit(1);
+            }
+            yyerror("Invalid escape byte 0x00. Use \\\\ for a literal backslash.\n");
+            return -1;
+          case '\n':
+            yyerror("End of line while reading string at %d\n", yylineno - 1);
+            exit(1);
           case 'r':
             result.push_back('\r');
             continue;
@@ -331,7 +347,12 @@ literal_begin (['\"])
             result.push_back('\\');
             continue;
           default:
-            yyerror("Bad escape character\n");
+            if (ch >= 0x20 && ch <= 0x7e) {
+              yyerror("Invalid escape sequence '\\%c'. Use \\\\ for a literal backslash.\n", ch);
+            } else {
+              yyerror("Invalid escape byte 0x%02X. Use \\\\ for a literal backslash.\n",
+                      static_cast<unsigned int>(ch));
+            }
             return -1;
         }
         break;
@@ -352,6 +373,12 @@ literal_begin (['\"])
 }
 
 %%
+
+// A zero from yyinput() can also be a literal NUL; yywrap marks actual EOF.
+int yywrap(void) {
+  yyinput_reached_eof = true;
+  return 1;
+}
 
 #ifdef _MSC_VER
 #pragma warning( pop )
